@@ -199,7 +199,7 @@ void printcfgfile(void)
 	defaultcomment(cfg.alwaysadd == ALWAYSADD);
 	printf("AlwaysAddNewInterfaces %d\n\n", cfg.alwaysadd);
 
-	printf("# on which day should months change\n");
+	printf("# on which day should months change (1..31; short months use their last day)\n");
 	defaultcomment(cfg.monthrotate == MONTHROTATE);
 	printf("MonthRotate %d\n", cfg.monthrotate);
 	defaultcomment(cfg.monthrotatehour == MONTHROTATEHOUR);

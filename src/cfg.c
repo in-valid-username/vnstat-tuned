@@ -200,7 +200,7 @@ void validatecfg(const ConfigType type)
 	validateint("BootVariation", &cfg.bvar, BVAR, 0, 300);
 	validateint("Sampletime", &cfg.sampletime, DEFSAMPTIME, 2, 600);
 	validatebool("LiveSpinner", &cfg.livespinner, LIVESPINNER);
-	validateint("MonthRotate", &cfg.monthrotate, MONTHROTATE, 1, 28);
+	validateint("MonthRotate", &cfg.monthrotate, MONTHROTATE, 1, 31);
 	validateint("MonthRotateHour", &cfg.monthrotatehour, MONTHROTATEHOUR, 0, 23);
 	validateint("MonthRotateMinute", &cfg.monthrotateminute, MONTHROTATEMINUTE, 0, 59);
 	validatebool("MonthRotateAffectsYears", &cfg.monthrotateyears, MONTHROTATEYEARS);

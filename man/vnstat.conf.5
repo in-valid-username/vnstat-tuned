@@ -345,7 +345,11 @@ Day of month that months are expected to change. Usually set to
 monthly billed traffic where the billing period doesn't start on
 the first day. For example, if set to 7, days of February up to and
 including the 6th will count for January. Changing this option will
-not cause existing data to be recalculated. Value range: 1..28.
+not cause existing data to be recalculated. Value range: 1..31.
+If the configured day does not exist in a month, that month's last day is
+used without changing the configured hour or minute. For example, day 31
+uses April 30, February 28 in a common year and February 29 in a leap year.
+The following month uses the configured day again, not the previous clamp.
 The boundary time is set by MonthRotateHour and MonthRotateMinute.
 All three settings use the database timezone (UTC when UseUTC is enabled,
 otherwise the daemon's local timezone). Use the same configuration and timezone

@@ -18,7 +18,7 @@ UpdateInterval 20
 
 | 字段 | 作用 | 范围和默认值来源 |
 | --- | --- | --- |
-| `MonthRotate` | 每月起始日 | [cfg.c](../src/cfg.c) 的 `validatecfg`，默认值 `MONTHROTATE` |
+| `MonthRotate` | 每月起始日，接受 1–31 的整数 | [cfg.c](../src/cfg.c) 的 `validatecfg`，默认值 `MONTHROTATE` |
 | `MonthRotateHour` | 起始小时 | 同上，默认值 `MONTHROTATEHOUR` |
 | `MonthRotateMinute` | 起始分钟，接受 0–59 的整数 | 同上，默认值 `MONTHROTATEMINUTE` |
 | `MonthRotateAffectsYears` | 年度边界也采用 1 月的账期起点 | 同上，默认值 `MONTHROTATEYEARS` |
@@ -31,6 +31,14 @@ UpdateInterval 20
 `UseUTC 1` 按 UTC 切换；`UseUTC 0` 按进程本地时区切换。固定 UTC+8 可在所有采集和查询进程中使用 `TZ=Asia/Singapore`。前端访客时区只影响显示，不改变计量账期。
 
 月度标签仍为 `YYYY-MM-01`。上述配置下，1 月标签覆盖 1 月 7 日 18:24 至 2 月 7 日 18:24，包含起点、不含终点。月度 SQL 标签由 [dbsql.c](../src/dbsql.c) 的 `db_get_date_generator` 生成，边界计算由 [common.c](../src/common.c) 的 `billingperiodstart` 维护。
+
+## 月底日期
+
+设置 29、30 或 31 日时，若当月没有该日期，就取当月最后一天，小时和分钟不变；下一月重新按配置日期计算，不沿用上月钳制后的日期。例如 `MonthRotate 31`、`MonthRotateHour 18`、`MonthRotateMinute 24` 对应 4 月 30 日 18:24、平年 2 月 28 日 18:24、闰年 2 月 29 日 18:24，3 月仍为 31 日 18:24。2 月标签覆盖钳制后的 2 月起点至 3 月配置起点，包含起点、不含终点。
+
+29–31 日的采集标签通过 [dbsql.c](../src/dbsql.c) 的 `db_billing_monthlabel` 复用 `billingperiodstart`，与周期长度、估算和 95 百分位窗口采用同一边界。`UseUTC` 的含义不变；本地时间遇到夏令时缺失或重复时刻，仍由 `mktime` 和 `tm_isdst = -1` 处理。年度边界仅在 `MonthRotateAffectsYears 1` 时使用 1 月的配置日期和时分。
+
+上游 v2.13 的 [validatecfg](https://github.com/vergoh/vnstat/blob/v2.13/src/cfg.c) 只接受 1–28 日；月底钳制是本分支新增的兼容行为，不是恢复上游已有功能。原 1–28 日的 SQL 归属路径不变。
 
 `UseUTC 1` 的查询工具宜同时设置 `TZ=UTC`。旧数据库的日历时间表示在夏令时重复或缺失的时刻，以及部分历史时区偏移下存在歧义；适用范围和相关回归见[修复与兼容性](fork-review.md#时区与历史数据)。
 

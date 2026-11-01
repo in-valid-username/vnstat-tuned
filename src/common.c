@@ -233,7 +233,9 @@ time_t billingcalendartime(time_t label)
 
 time_t billingperiodstart(time_t label, const int yearly, const int next)
 {
+	static const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 	struct tm d;
+	int lastday;
 
 	if (localtime_r(&label, &d) == NULL) {
 		return (time_t)-1;
@@ -244,7 +246,20 @@ time_t billingperiodstart(time_t label, const int yearly, const int next)
 	} else {
 		d.tm_mon += next;
 	}
+	/* Normalize the target month before clamping, without normalizing its wall time. */
+	while (d.tm_mon > 11) {
+		d.tm_mon -= 12;
+		d.tm_year++;
+	}
+	while (d.tm_mon < 0) {
+		d.tm_mon += 12;
+		d.tm_year--;
+	}
+	lastday = days[d.tm_mon] + (d.tm_mon == 1 && isleapyear(d.tm_year + 1900));
 	d.tm_mday = (!yearly || cfg.monthrotateyears) ? cfg.monthrotate : 1;
+	if (d.tm_mday > lastday) {
+		d.tm_mday = lastday;
+	}
 	d.tm_hour = (!yearly || cfg.monthrotateyears) ? cfg.monthrotatehour : 0;
 	d.tm_min = (!yearly || cfg.monthrotateyears) ? cfg.monthrotateminute : 0;
 	d.tm_sec = 0;

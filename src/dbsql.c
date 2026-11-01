@@ -8,6 +8,45 @@ sqlite3 *db;
 int db_errcode;
 int db_intransaction;
 
+static void db_billing_monthlabel(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+	struct tm calendar;
+	time_t timestamp, label, boundary;
+	char result[32];
+
+	(void)argc;
+	if (sqlite3_value_type(argv[0]) == SQLITE_NULL) {
+		sqlite3_result_null(context);
+		return;
+	}
+	timestamp = (time_t)sqlite3_value_int64(argv[0]);
+	if ((cfg.useutc ? gmtime_r(&timestamp, &calendar) : localtime_r(&timestamp, &calendar)) == NULL) {
+		sqlite3_result_error(context, "Invalid billing timestamp", -1);
+		return;
+	}
+	calendar.tm_mday = 1;
+	calendar.tm_hour = calendar.tm_min = calendar.tm_sec = 0;
+	calendar.tm_isdst = -1;
+	/* billingperiodstart expects a local calendar label, including in UTC mode. */
+	label = mktime(&calendar);
+	boundary = label == (time_t)-1 ? (time_t)-1 : billingperiodstart(label, 0, 0);
+	if (boundary == (time_t)-1) {
+		sqlite3_result_error(context, "Invalid billing boundary", -1);
+		return;
+	}
+	if (timestamp < boundary) {
+		if (--calendar.tm_mon < 0) {
+			calendar.tm_mon = 11;
+			calendar.tm_year--;
+		}
+	}
+	if (!strftime(result, sizeof(result), "%Y-%m-01", &calendar)) {
+		sqlite3_result_error(context, "Invalid billing label", -1);
+		return;
+	}
+	sqlite3_result_text(context, result, -1, SQLITE_TRANSIENT);
+}
+
 int db_open_ro(void)
 {
 	return db_open(0, 1);
@@ -90,6 +129,16 @@ int db_open_filename(const char *dbfilename, const int createifnotfound, const i
 	} else {
 		if (debug)
 			printf("Database \"%s\" open (ro: %d)\n", dbfilename, readonly);
+	}
+
+	rc = sqlite3_create_function(db, "vnstat_monthlabel", 1, SQLITE_UTF8, NULL,
+	                            db_billing_monthlabel, NULL, NULL);
+	if (rc != SQLITE_OK) {
+		db_errcode = rc;
+		snprintf(errorstring, 1024, "Registering billing month function failed (%d): %s", rc, sqlite3_errmsg(db));
+		printe(PT_Error);
+		db_close();
+		return 0;
 	}
 
 	if (createdb) {
@@ -887,6 +936,11 @@ char *db_get_date_generator(const int range, const short direct, const char *now
 			snprintf(dgen, 512, "date(%s%s)", nowdate, cfg.dbtzmodifier);
 			break;
 		case 3: /* month */
+			if (!direct && cfg.monthrotate > 28) {
+				/* Share clamping and libc DST resolution with period lengths and estimates. */
+				snprintf(dgen, sizeof(dgen), "vnstat_monthlabel(strftime('%%s', %s))", nowdate);
+				break;
+			}
 			if (!direct && (cfg.monthrotatehour != 0 || cfg.monthrotateminute != 0)) {
 				snprintf(dgen, sizeof(dgen), "strftime('%%Y-%%m-01', datetime(%s%s, '-%d days', '-%d hours', '-%d minutes'))", nowdate, cfg.dbtzmodifier, cfg.monthrotate - 1, cfg.monthrotatehour, cfg.monthrotateminute);
 				break;
