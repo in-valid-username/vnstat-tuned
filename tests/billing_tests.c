@@ -132,12 +132,39 @@ START_TEST(billing_monthend_periods)
 }
 END_TEST
 
+/* Freeze the pre-existing SQL path for days 1..28, including SQLite's
+ * platform-dependent handling of years outside localtime_r's usual range. */
+static void monthend_legacy_sql_label(char label[11], const time_t timestamp)
+{
+	sqlite3_stmt *statement;
+	char sql[512];
+	const char *value;
+
+	snprintf(sql, sizeof(sql),
+	         "select strftime('%%Y-%%m-01', datetime(datetime(%" PRIu64 ", 'unixepoch')%s, '-%d days', '-%d hours', '-%d minutes'))",
+	         (uint64_t)timestamp, cfg.dbtzmodifier, cfg.monthrotate - 1,
+	         cfg.monthrotatehour, cfg.monthrotateminute);
+	ck_assert_int_eq(sqlite3_prepare_v2(db, sql, -1, &statement, NULL), SQLITE_OK);
+	ck_assert_int_eq(sqlite3_step(statement), SQLITE_ROW);
+	value = (const char *)sqlite3_column_text(statement, 0);
+	ck_assert_ptr_ne(value, NULL);
+	strncpy_nt(label, value, 11);
+	ck_assert_int_eq(sqlite3_finalize(statement), SQLITE_OK);
+}
+
 START_TEST(billing_monthend_database_labels)
 {
 	dbdatalist *data = NULL;
 	dbdatalistinfo info;
 	time_t boundary;
-	int day, clock, c = _i / 8;
+	const int offsets[] = {-60, -1, 0, 1, 60};
+	const uint64_t sample_rx[] = {10, 1, 30, 3, 50};
+	const uint64_t sample_tx[] = {20, 2, 40, 4, 60};
+	struct {
+		char label[11];
+		uint64_t rx, tx;
+	} legacy[5];
+	int day, clock, k, nlegacy, c = _i / 8;
 	int year = monthend_cases[c].year, month = monthend_cases[c].month;
 
 	monthend_timezone(_i % 8);
@@ -156,14 +183,53 @@ START_TEST(billing_monthend_database_labels)
 			ck_assert_int_eq(db_addtraffic_dated("monthend0", 30, 40, (uint64_t)boundary), 1);
 			ck_assert_int_eq(db_addtraffic_dated("monthend0", 3, 4, (uint64_t)(boundary + 1)), 1);
 			ck_assert_int_eq(db_addtraffic_dated("monthend0", 50, 60, (uint64_t)(boundary + 60)), 1);
+			if (day <= 28) {
+				/* Check every inserted sample against the frozen legacy SQL, not
+				 * an idealized calendar boundary. SQLite may map year 2100
+				 * through leap year 2000 for its 'localtime' modifier. */
+				nlegacy = 0;
+				for (k = 0; k < 5; k++) {
+					char label[11];
+					int position = 0, j;
+					monthend_legacy_sql_label(label, boundary + offsets[k]);
+					while (position < nlegacy && strcmp(legacy[position].label, label) < 0) {
+						position++;
+					}
+					if (position == nlegacy || strcmp(legacy[position].label, label) != 0) {
+						for (j = nlegacy; j > position; j--) {
+							legacy[j] = legacy[j - 1];
+						}
+						memset(&legacy[position], 0, sizeof(legacy[position]));
+						strncpy_nt(legacy[position].label, label, sizeof(legacy[position].label));
+						nlegacy++;
+					}
+					legacy[position].rx += sample_rx[k];
+					legacy[position].tx += sample_tx[k];
+				}
+			}
 			ck_assert_int_eq(db_getdata(&data, &info, "monthend0", "month", 0), 1);
-			ck_assert_int_eq(info.count, 2);
-			ck_assert_int_eq(data->timestamp, monthend_label(year - (month == 1), month == 1 ? 12 : month - 1));
-			ck_assert_int_eq(data->rx, 11);
-			ck_assert_int_eq(data->tx, 22);
-			ck_assert_int_eq(data->next->timestamp, monthend_label(year, month));
-			ck_assert_int_eq(data->next->rx, 83);
-			ck_assert_int_eq(data->next->tx, 104);
+			if (day <= 28) {
+				dbdatalist *row = data;
+				ck_assert_int_eq(info.count, nlegacy);
+				for (k = 0; k < nlegacy; k++) {
+					ck_assert_ptr_ne(row, NULL);
+					ck_assert_int_eq(row->timestamp,
+					                 monthend_label(atoi(legacy[k].label), atoi(legacy[k].label + 5)));
+					ck_assert_int_eq(row->rx, legacy[k].rx);
+					ck_assert_int_eq(row->tx, legacy[k].tx);
+					row = row->next;
+				}
+				ck_assert_ptr_eq(row, NULL);
+			} else {
+				/* The new clamped path must always split at the exact cutoff. */
+				ck_assert_int_eq(info.count, 2);
+				ck_assert_int_eq(data->timestamp, monthend_label(year - (month == 1), month == 1 ? 12 : month - 1));
+				ck_assert_int_eq(data->rx, 11);
+				ck_assert_int_eq(data->tx, 22);
+				ck_assert_int_eq(data->next->timestamp, monthend_label(year, month));
+				ck_assert_int_eq(data->next->rx, 83);
+				ck_assert_int_eq(data->next->tx, 104);
+			}
 			dbdatalistfree(&data);
 			ck_assert_int_eq(db_removeinterface("monthend0"), 1);
 		}
