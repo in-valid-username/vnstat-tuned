@@ -835,7 +835,6 @@ void drawsummary_digest(IMAGECONTENT *ic, const int x, const int y, const char *
 			data_current->rx, data_current->tx);
 
 		if (cfg.summaryrate) {
-			d = localtime(&ic->interface.updated);
 			if (mode[0] == 'd') {
 				rateptr = gettrafficrate(data_current->rx + data_current->tx, (time_t)getperiodseconds(LT_Day, data_current->timestamp, ic->interface.updated, ic->interface.created, 1), 1);
 			} else {
@@ -860,7 +859,6 @@ void drawsummary_digest(IMAGECONTENT *ic, const int x, const int y, const char *
 		imagestring(ic, FONT_ROLE_TITLE, title_x, title_y, titlebuf, ic->ctext);
 
 		if (cfg.summaryrate) {
-			d = localtime(&ic->interface.updated);
 			if (mode[0] == 'd') {
 				snprintf(datebuff, 16, "%15s", gettrafficrate(data_current->rx + data_current->tx, (time_t)getperiodseconds(LT_Day, data_current->timestamp, ic->interface.updated, ic->interface.created, 1), 15));
 			} else if (mode[0] == 'm') {
