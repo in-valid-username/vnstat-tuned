@@ -16,6 +16,45 @@ int db_intransaction;
 /* prefixes in db_getdata_range leaves 946 bytes, keep the fragment under that */
 #define SQLERRLEN 900
 
+static void db_billing_monthlabel(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+	struct tm calendar;
+	time_t timestamp, label, boundary;
+	char result[32];
+
+	(void)argc;
+	if (sqlite3_value_type(argv[0]) == SQLITE_NULL) {
+		sqlite3_result_null(context);
+		return;
+	}
+	timestamp = (time_t)sqlite3_value_int64(argv[0]);
+	if ((cfg.useutc ? gmtime_r(&timestamp, &calendar) : localtime_r(&timestamp, &calendar)) == NULL) {
+		sqlite3_result_error(context, "Invalid billing timestamp", -1);
+		return;
+	}
+	calendar.tm_mday = 1;
+	calendar.tm_hour = calendar.tm_min = calendar.tm_sec = 0;
+	calendar.tm_isdst = -1;
+	/* billingperiodstart 按本地日历标签传参，开启 UseUTC 时也一样 */
+	label = mktime(&calendar);
+	boundary = label == (time_t)-1 ? (time_t)-1 : billingperiodstart(label, 0, 0);
+	if (boundary == (time_t)-1) {
+		sqlite3_result_error(context, "Invalid billing boundary", -1);
+		return;
+	}
+	if (timestamp < boundary) {
+		if (--calendar.tm_mon < 0) {
+			calendar.tm_mon = 11;
+			calendar.tm_year--;
+		}
+	}
+	if (!strftime(result, sizeof(result), "%Y-%m-01", &calendar)) {
+		sqlite3_result_error(context, "Invalid billing label", -1);
+		return;
+	}
+	sqlite3_result_text(context, result, -1, SQLITE_TRANSIENT);
+}
+
 int db_open_ro(void)
 {
 	return db_open(0, 1);
@@ -98,6 +137,15 @@ int db_open_filename(const char *dbfilename, const int createifnotfound, const i
 	} else {
 		if (debug)
 			printf("Database \"%s\" open (ro: %d)\n", dbfilename, readonly);
+	}
+
+	rc = sqlite3_create_function(db, "vnstat_monthlabel", 1, SQLITE_UTF8, NULL, db_billing_monthlabel, NULL, NULL);
+	if (rc != SQLITE_OK) {
+		db_errcode = rc;
+		snprintf(errorstring, 1024, "Registering billing month function failed (%d): %s", rc, sqlite3_errmsg(db));
+		printe(PT_Error);
+		db_close();
+		return 0;
 	}
 
 	if (createdb) {
@@ -701,26 +749,27 @@ int db_getcounters(const char *iface, uint64_t *rxcounter, uint64_t *txcounter)
 	return 1;
 }
 
-int db_getinterfaceinfo(const char *iface, interfaceinfo *info)
+static int db_readinterfaceinfo(const char *iface, interfaceinfo *info, const int calendar)
 {
 	int rc;
 	char sql[SQLBUFLEN], *ifaceidin = NULL;
 	sqlite3_int64 ifaceid;
 	sqlite3_stmt *sqlstmt;
+	const char *tz = (calendar || !cfg.useutc) ? ", 'utc'" : "";
 
 	if (strchr(iface, '+') == NULL) {
 		ifaceid = db_getinterfaceid(iface, 0);
 		if (ifaceid == 0) {
 			return 0;
 		}
-		sqlite3_snprintf(SQLBUFLEN, sql, "select name, alias, active, strftime('%%s', created, 'utc'), strftime('%%s', updated, 'utc'), rxcounter, txcounter, rxtotal, txtotal from interface where id=%" PRId64 "", (int64_t)ifaceid);
+		sqlite3_snprintf(SQLBUFLEN, sql, "select name, alias, active, strftime('%%s', created%s), strftime('%%s', updated%s), rxcounter, txcounter, rxtotal, txtotal from interface where id=%" PRId64 "", tz, tz, (int64_t)ifaceid);
 	} else {
 		ifaceidin = db_getinterfaceidin(iface);
 		if (ifaceidin == NULL || strlen(ifaceidin) < 1) {
 			free(ifaceidin);
 			return 0;
 		}
-		sqlite3_snprintf(SQLBUFLEN, sql, "select '%q', NULL, max(active), max(strftime('%%s', created, 'utc')), min(strftime('%%s', updated, 'utc')), 0, 0, sum(rxtotal), sum(txtotal) from interface where id in (%s)", iface, ifaceidin);
+		sqlite3_snprintf(SQLBUFLEN, sql, "select '%q', NULL, max(active), max(strftime('%%s', created%s)), min(strftime('%%s', updated%s)), 0, 0, sum(rxtotal), sum(txtotal) from interface where id in (%s)", iface, tz, tz, ifaceidin);
 		free(ifaceidin);
 	}
 
@@ -736,6 +785,7 @@ int db_getinterfaceinfo(const char *iface, interfaceinfo *info)
 		return 0;
 	}
 	if (sqlite3_column_count(sqlstmt) != 9) {
+		sqlite3_finalize(sqlstmt);
 		return 0;
 	}
 	if (sqlite3_step(sqlstmt) == SQLITE_ROW) {
@@ -762,6 +812,17 @@ int db_getinterfaceinfo(const char *iface, interfaceinfo *info)
 	return 1;
 }
 
+int db_getinterfaceinfo(const char *iface, interfaceinfo *info)
+{
+	return db_readinterfaceinfo(iface, info, 1);
+}
+
+/* 守护进程算采样间隔必须拿真实 epoch，不能按查询展示用的日历时间来读 */
+int db_getinterfaceinfo_epoch(const char *iface, interfaceinfo *info)
+{
+	return db_readinterfaceinfo(iface, info, 0);
+}
+
 int db_setalias(const char *iface, const char *alias)
 {
 	char sql[128];
@@ -779,16 +840,26 @@ int db_setalias(const char *iface, const char *alias)
 int db_setinfo(const char *name, const char *value, const int createifnotfound)
 {
 	int rc;
-	char sql[128];
+	char *sql;
 
-	sqlite3_snprintf(128, sql, "update info set value='%q' where name='%q'", value, name);
+	sql = sqlite3_mprintf("update info set value='%q' where name='%q'", value, name);
+	if (sql == NULL) {
+		db_errcode = SQLITE_NOMEM;
+		return 0;
+	}
 	rc = db_exec(sql);
+	sqlite3_free(sql);
 	if (!rc || (!sqlite3_changes(db) && !createifnotfound)) {
 		return 0;
 	}
 	if (!sqlite3_changes(db) && createifnotfound) {
-		sqlite3_snprintf(512, sql, "insert into info (name, value) values ('%q', '%q')", name, value);
+		sql = sqlite3_mprintf("insert into info (name, value) values ('%q', '%q')", name, value);
+		if (sql == NULL) {
+			db_errcode = SQLITE_NOMEM;
+			return 0;
+		}
 		rc = db_exec(sql);
+		sqlite3_free(sql);
 	}
 	return rc;
 }
@@ -874,6 +945,27 @@ int db_getiflist_sorted(iflist **ifl, const int orderbytraffic)
 	return rc;
 }
 
+time_t db_getmonthlabel(const int64_t rowid)
+{
+	sqlite3_stmt *statement;
+	struct tm calendar = {0};
+	time_t label = (time_t)-1;
+
+	/* SQLite 和 libc 对历史时区偏移的换算可能不一致，拆出年月交给 mktime 更稳 */
+	if (sqlite3_prepare_v2(db, "select strftime('%Y', date), strftime('%m', date) from month where id=?1", -1, &statement, NULL) == SQLITE_OK) {
+		sqlite3_bind_int64(statement, 1, (sqlite3_int64)rowid);
+		if (sqlite3_step(statement) == SQLITE_ROW && sqlite3_column_type(statement, 0) != SQLITE_NULL && sqlite3_column_type(statement, 1) != SQLITE_NULL) {
+			calendar.tm_year = sqlite3_column_int(statement, 0) - 1900;
+			calendar.tm_mon = sqlite3_column_int(statement, 1) - 1;
+			calendar.tm_mday = 1;
+			calendar.tm_isdst = -1;
+			label = mktime(&calendar);
+		}
+		sqlite3_finalize(statement);
+	}
+	return label;
+}
+
 char *db_get_date_generator(const int range, const short direct, const char *nowdate)
 {
 	static char dgen[512];
@@ -891,6 +983,15 @@ char *db_get_date_generator(const int range, const short direct, const char *now
 			snprintf(dgen, 512, "date(%s%s)", nowdate, cfg.dbtzmodifier);
 			break;
 		case 3: /* month */
+			if (!direct && cfg.monthrotate > 28) {
+				/* 29..31 日涉及短月取最后一天，统一走 C 函数保持与时长、估算及百分位口径一致 */
+				snprintf(dgen, sizeof(dgen), "vnstat_monthlabel(strftime('%%s', %s))", nowdate);
+				break;
+			}
+			if (!direct && (cfg.monthrotatehour != 0 || cfg.monthrotateminute != 0)) {
+				snprintf(dgen, sizeof(dgen), "strftime('%%Y-%%m-01', datetime(%s%s, '-%d days', '-%d hours', '-%d minutes'))", nowdate, cfg.dbtzmodifier, cfg.monthrotate - 1, cfg.monthrotatehour, cfg.monthrotateminute);
+				break;
+			}
 			if (direct || cfg.monthrotate == 1) {
 				snprintf(dgen, 512, "strftime('%%Y-%%m-01', %s%s)", nowdate, cfg.dbtzmodifier);
 			} else {
@@ -898,6 +999,10 @@ char *db_get_date_generator(const int range, const short direct, const char *now
 			}
 			break;
 		case 4: /* year */
+			if (!direct && cfg.monthrotateyears && (cfg.monthrotatehour != 0 || cfg.monthrotateminute != 0)) {
+				snprintf(dgen, sizeof(dgen), "strftime('%%Y-01-01', datetime(%s%s, '-%d days', '-%d hours', '-%d minutes'))", nowdate, cfg.dbtzmodifier, cfg.monthrotate - 1, cfg.monthrotatehour, cfg.monthrotateminute);
+				break;
+			}
 			if (direct || cfg.monthrotate == 1 || cfg.monthrotateyears == 0) {
 				snprintf(dgen, 512, "strftime('%%Y-01-01', %s%s)", nowdate, cfg.dbtzmodifier);
 			} else {
@@ -1072,7 +1177,7 @@ int db_removeoldentries(void)
 			if (debug) {
 				printf("  top - %d entries to be left\n", cfg.topdayentries);
 			}
-			sqlite3_snprintf(512, sql, "delete from top where id in ( select id from top where interface=%" PRId64 " and date!=date('now'%s) order by rx+tx desc, date asc limit -1 offset %d )", dbifl_i->id, cfg.dbtzmodifier, cfg.topdayentries);
+			sqlite3_snprintf((int)sizeof(sql), sql, "delete from top where id in ( select id from top where interface=%" PRId64 " and date!=date('now'%s) order by rx+tx desc, date asc limit -1 offset %d )", dbifl_i->id, cfg.dbtzmodifier, cfg.topdayentries);
 			if (!db_exec(sql)) {
 				db_rollbacktransaction();
 				iflistfree(&dbifl);

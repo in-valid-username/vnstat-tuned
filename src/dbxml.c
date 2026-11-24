@@ -35,7 +35,10 @@ void showxml(const char *interface, const char mode, const char *databegin, cons
 	xmldate(&ifaceinfo.updated, 2);
 	printf("</updated>\n");
 	printf("  <monthrotate>%" PRId32 "</monthrotate>\n", cfg.monthrotate);
+	printf("  <monthrotatehour>%" PRId32 "</monthrotatehour>\n", cfg.monthrotatehour);
+	printf("  <monthrotateminute>%" PRId32 "</monthrotateminute>\n", cfg.monthrotateminute);
 	printf("  <monthrotateaffectsyears>%" PRId32 "</monthrotateaffectsyears>\n", cfg.monthrotateyears);
+	printf("  <useutc>%" PRId32 "</useutc>\n", cfg.useutc);
 
 	if (mode == 'p') {
 		xmlpercentile(&ifaceinfo);
@@ -145,7 +148,7 @@ void xmlpercentile(const interfaceinfo *ifaceinfo)
 	printf("   <average>");
 	printf("<rx_bytes_per_second>%" PRIu64 "</rx_bytes_per_second>", (uint64_t)((double)pdata.sumrx / (double)(pdata.count * 300)));
 	printf("<tx_bytes_per_second>%" PRIu64 "</tx_bytes_per_second>", (uint64_t)((double)pdata.sumtx / (double)(pdata.count * 300)));
-	printf("<total_bytes_per_second>%" PRIu64 "</total_bytes_per_second>", (uint64_t)((double)pdata.sumrx + (double)pdata.sumtx / (double)(pdata.count * 300)));
+	printf("<total_bytes_per_second>%" PRIu64 "</total_bytes_per_second>", (uint64_t)(((double)pdata.sumrx + (double)pdata.sumtx) / (double)(pdata.count * 300)));
 	printf("</average>\n");
 
 	printf("   <maximum>");
@@ -154,11 +157,12 @@ void xmlpercentile(const interfaceinfo *ifaceinfo)
 	printf("<total_bytes_per_second>%" PRIu64 "</total_bytes_per_second>", (uint64_t)((double)pdata.max / (double)300));
 	printf("</maximum>\n");
 
-	printf("   <95th_percentile>");
+	/* 原名 95th_percentile 以数字开头，不符合 XML 1.0 元素命名规范 */
+	printf("   <percentile_95>");
 	printf("<rx_bytes_per_second>%" PRIu64 "</rx_bytes_per_second>", (uint64_t)((double)pdata.rxpercentile / (double)300));
 	printf("<tx_bytes_per_second>%" PRIu64 "</tx_bytes_per_second>", (uint64_t)((double)pdata.txpercentile / (double)300));
 	printf("<total_bytes_per_second>%" PRIu64 "</total_bytes_per_second>", (uint64_t)((double)pdata.sumpercentile / (double)300));
-	printf("</95th_percentile>\n");
+	printf("</percentile_95>\n");
 
 	printf("  </bandwidth>\n");
 }
@@ -227,6 +231,8 @@ void xmlstring(const char *s)
 void xmlheader(void)
 {
 	printf("<vnstat version=\"%s\" xmlversion=\"%d\">\n", getversion(), XMLVERSION);
+	printf(" <billing><monthrotate>%" PRId32 "</monthrotate><monthrotatehour>%" PRId32 "</monthrotatehour><monthrotateminute>%" PRId32 "</monthrotateminute><monthrotateaffectsyears>%" PRId32 "</monthrotateaffectsyears><useutc>%" PRId32 "</useutc></billing>\n",
+	       cfg.monthrotate, cfg.monthrotatehour, cfg.monthrotateminute, cfg.monthrotateyears, cfg.useutc);
 }
 
 void xmlfooter(void)

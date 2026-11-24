@@ -128,6 +128,7 @@ jobs:
         uses: natanlao/perl-critic-action@v1.1
 
   dev_docker_trigger:
+    if: github.repository == 'vergoh/vnstat'
     needs: [lint, ubuntu, ubuntu_clang_sanitizers, ubuntu_clang_analyzer]
     runs-on: ubuntu-latest
     steps:
@@ -142,6 +143,7 @@ jobs:
             $GITHUB_API_URL/repos/vergoh/vnstat-docker/actions/workflows/dev.yml/dispatches
 
   edge_snap_trigger:
+    if: github.repository == 'vergoh/vnstat'
     needs: [lint, ubuntu, ubuntu_clang_sanitizers, ubuntu_clang_analyzer]
     runs-on: ubuntu-latest
     steps:

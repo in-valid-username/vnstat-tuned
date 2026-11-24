@@ -349,7 +349,32 @@ Day of month that months are expected to change. Usually set to
 monthly billed traffic where the billing period doesn't start on
 the first day. For example, if set to 7, days of February up to and
 including the 6th will count for January. Changing this option will
-not cause existing data to be recalculated. Value range: 1..28
+not cause existing data to be recalculated. Value range: 1..31.
+If the configured day does not exist in a month, that month's last day is
+used without changing the configured hour or minute. For example, day 31
+uses April 30, February 28 in a common year and February 29 in a leap year,
+while March still starts on day 31.
+The boundary time is set by
+.B MonthRotateHour
+and
+.BR MonthRotateMinute .
+All three settings use the database timezone (UTC when
+.B UseUTC
+is enabled, otherwise the daemon's local timezone). Use the same configuration
+and timezone for the daemon and query tools.
+
+.TP
+.B MonthRotateHour
+Hour of the monthly billing boundary. Value range: 0..23. Default: 0.
+
+.TP
+.B MonthRotateMinute
+Minute of the monthly billing boundary, in one-minute increments.
+Accepted values: any integer from 0 through 59. Default: 0. Invalid values produce a
+configuration warning and fall back to 0; values are not silently rounded.
+Off-grid billing minutes use one-minute in-memory traffic buckets while persisted
+five-minute data retains its resolution. The 95th percentile uses only five-minute
+samples fully inside the billing period, excluding partial samples at either end.
 
 .TP
 .B MonthRotateAffectsYears
@@ -357,15 +382,19 @@ Enable or disable
 .B MonthRotate
 also affecting yearly data. Applicable only when
 .B MonthRotate
-has a value greater than one. 1 = enabled, 0 = disabled.
+or its hour or minute differs from the default. 1 = enabled, 0 = disabled.
 
 .TP
 .B MonthRotateVisible
-Control visibility of a note documenting on which day of the month monthly data
-begins. The note is shown in text and image outputs that include monthly data.
+Control visibility of a note documenting when monthly data begins.
+The note is shown in text and image outputs that include monthly data.
 0 = never, 1 = when
 .B MonthRotate
-is not 1, 2 = always. (vnstat and vnstati only)
+is not 1 or
+.B MonthRotateHour
+/
+.B MonthRotateMinute
+is non-zero, 2 = always. (vnstat and vnstati only)
 
 .TP
 .B OfflineSaveInterval

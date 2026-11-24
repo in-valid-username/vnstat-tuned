@@ -15,6 +15,8 @@ int loadcfg(const char *cfgfile, const ConfigType type)
 		 {"DatabaseDir", cfg.dbdir, 0, 512, 0},
 		 {"Locale", cfg.locale, 0, 32, 0},
 		 {"MonthRotate", 0, &cfg.monthrotate, 0, 0},
+		 {"MonthRotateHour", 0, &cfg.monthrotatehour, 0, 0},
+		 {"MonthRotateMinute", 0, &cfg.monthrotateminute, 0, 0},
 		 {"MonthRotateAffectsYears", 0, &cfg.monthrotateyears, 0, 0},
 		 {"MonthRotateVisible", 0, &cfg.monthrotatevisible, 0, 0},
 		 {"DayFormat", cfg.dformat, 0, 64, 0},
@@ -206,7 +208,9 @@ void validatecfg(const ConfigType type)
 	validateint("BootVariation", &cfg.bvar, BVAR, 0, 300);
 	validateint("Sampletime", &cfg.sampletime, DEFSAMPTIME, 2, 600);
 	validatebool("LiveSpinner", &cfg.livespinner, LIVESPINNER);
-	validateint("MonthRotate", &cfg.monthrotate, MONTHROTATE, 1, 28);
+	validateint("MonthRotate", &cfg.monthrotate, MONTHROTATE, 1, 31);
+	validateint("MonthRotateHour", &cfg.monthrotatehour, MONTHROTATEHOUR, 0, 23);
+	validateint("MonthRotateMinute", &cfg.monthrotateminute, MONTHROTATEMINUTE, 0, 59);
 	validatebool("MonthRotateAffectsYears", &cfg.monthrotateyears, MONTHROTATEYEARS);
 	validateint("MonthRotateVisible", &cfg.monthrotatevisible, MONTHROTATEVISIBLE, 0, 2);
 	validateint("MaxBandwidth", &cfg.maxbw, DEFMAXBW, 0, BWMAX);
@@ -356,6 +360,8 @@ void defaultcfg(void)
 	cfg.sampletime = DEFSAMPTIME;
 	cfg.livespinner = LIVESPINNER;
 	cfg.monthrotate = MONTHROTATE;
+	cfg.monthrotatehour = MONTHROTATEHOUR;
+	cfg.monthrotateminute = MONTHROTATEMINUTE;
 	cfg.monthrotateyears = MONTHROTATEYEARS;
 	cfg.monthrotatevisible = MONTHROTATEVISIBLE;
 	cfg.unitmode = UNITMODE;

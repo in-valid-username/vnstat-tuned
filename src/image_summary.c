@@ -940,7 +940,7 @@ void drawsummary_digest(IMAGECONTENT *ic, const int x, const int y, const char *
 				if (mode[0] == 'd') {
 					rateptr = gettrafficrate(data_previous->rx + data_previous->tx, 86400, 1);
 				} else {
-					rateptr = gettrafficrate(data_previous->rx + data_previous->tx, dmonth(d->tm_mon) * 86400, 1);
+					rateptr = gettrafficrate(data_previous->rx + data_previous->tx, (time_t)getperiodseconds(LT_Month, data_previous->timestamp, ic->interface.updated, ic->interface.created, 0), 1);
 				}
 				while (*rateptr == ' ') {
 					rateptr++;
@@ -964,7 +964,7 @@ void drawsummary_digest(IMAGECONTENT *ic, const int x, const int y, const char *
 				if (mode[0] == 'd') {
 					snprintf(datebuff, 16, "%15s", gettrafficrate(data_previous->rx + data_previous->tx, 86400, 15));
 				} else if (mode[0] == 'm') {
-					snprintf(datebuff, 16, "%15s", gettrafficrate(data_previous->rx + data_previous->tx, dmonth(d->tm_mon) * 86400, 15));
+					snprintf(datebuff, 16, "%15s", gettrafficrate(data_previous->rx + data_previous->tx, (time_t)getperiodseconds(LT_Month, data_previous->timestamp, ic->interface.updated, ic->interface.created, 0), 15));
 				}
 				imagestring(ic, FONT_ROLE_BODY, textx - bodyoff, texty + 4 * ic->lineheight + 10, datebuff, ic->ctext);
 			} else {

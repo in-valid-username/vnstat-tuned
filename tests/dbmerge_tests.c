@@ -279,6 +279,41 @@ START_TEST(mergeinterface_with_source_and_destination_data)
 }
 END_TEST
 
+START_TEST(mergeinterface_rolls_back_destination_on_source_read_failure)
+{
+	sqlite3 *srcdb, *dstdb;
+	interfaceinfo info;
+	dbdatalist *datalist = NULL;
+	dbdatalistinfo datainfo;
+
+	suppress_output();
+	ck_assert_int_eq(db_open_rw(1), 1);
+	srcdb = db;
+	ck_assert_int_eq(db_addinterface("source"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("source", 23, 45, get_timestamp(2001, 1, 1, 0, 0)), 1);
+	ck_assert_int_eq(sqlite3_exec(srcdb, "DROP TABLE hour", NULL, NULL, NULL), SQLITE_OK);
+	db = NULL;
+	ck_assert_int_eq(db_open_rw(1), 1);
+	dstdb = db;
+	ck_assert_int_eq(db_addinterface("destination"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("destination", 1, 2, get_timestamp(2001, 1, 1, 0, 0)), 1);
+
+	ck_assert_int_eq(mergeinterface(srcdb, "source", dstdb, "destination"), 0);
+	ck_assert_int_eq(sqlite3_get_autocommit(dstdb), 1);
+	db = dstdb;
+	ck_assert_int_eq(db_getinterfaceinfo("destination", &info), 1);
+	ck_assert_int_eq(info.rxtotal, 1);
+	ck_assert_int_eq(info.txtotal, 2);
+	ck_assert_int_eq(db_getdata(&datalist, &datainfo, "destination", "fiveminute", 0), 1);
+	ck_assert_int_eq(datainfo.sumrx, 1);
+	ck_assert_int_eq(datainfo.sumtx, 2);
+	dbdatalistfree(&datalist);
+	ck_assert_int_eq(db_close(), 1);
+	db = srcdb;
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
 void add_dbmerge_tests(Suite *s)
 {
 	TCase *tc_dbmerge = tcase_create("DB Merge");
@@ -294,6 +329,7 @@ void add_dbmerge_tests(Suite *s)
     tcase_add_test(tc_dbmerge, mergeinterface_without_source_data);
     tcase_add_test(tc_dbmerge, mergeinterface_with_source_data);
     tcase_add_test(tc_dbmerge, mergeinterface_with_source_and_destination_data);
+	tcase_add_test(tc_dbmerge, mergeinterface_rolls_back_destination_on_source_read_failure);
 
 	suite_add_tcase(s, tc_dbmerge);
 }

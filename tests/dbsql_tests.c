@@ -117,6 +117,23 @@ START_TEST(db_setinfo_can_update_infos)
 }
 END_TEST
 
+START_TEST(db_setinfo_long_metadata_is_safe)
+{
+	char name[71], value[21];
+
+	memset(name, 'n', sizeof(name) - 1);
+	name[sizeof(name) - 1] = '\0';
+	memset(value, 'v', sizeof(value) - 1);
+	value[sizeof(value) - 1] = '\0';
+	ck_assert_int_eq(db_open_rw(1), 1);
+	ck_assert_int_eq(db_setinfo(name, value, 1), 1);
+	ck_assert_str_eq(db_getinfo(name), value);
+	ck_assert_int_eq(db_setinfo(name, "quoted'value", 0), 1);
+	ck_assert_str_eq(db_getinfo(name), "quoted'value");
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
 START_TEST(db_setinfo_can_not_update_nonexisting_name)
 {
 	int ret;
@@ -4546,6 +4563,7 @@ void add_dbsql_tests(Suite *s)
 	tcase_add_test(tc_dbsql, db_setinfo_fails_with_no_open_db);
 	tcase_add_test(tc_dbsql, db_setinfo_can_set_infos);
 	tcase_add_test(tc_dbsql, db_setinfo_can_update_infos);
+	tcase_add_test(tc_dbsql, db_setinfo_long_metadata_is_safe);
 	tcase_add_test(tc_dbsql, db_setinfo_can_not_update_nonexisting_name);
 	tcase_add_test(tc_dbsql, db_addtraffic_with_no_traffic_does_nothing);
 	tcase_add_test(tc_dbsql, db_addtraffic_can_add_traffic_and_interfaces);

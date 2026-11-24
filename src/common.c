@@ -218,28 +218,66 @@ int isleapyear(const int year)
 	return 1;
 }
 
-time_t mosecs(time_t month, time_t updated)
+/* db_getdata 统一用 SQLite 的 'utc' 修饰符把表内日历文本转成可由 localtime 还原的时间值，开启 UseUTC 时需再还原成真实 UTC 秒数 */
+time_t billingcalendartime(time_t label)
 {
-	time_t motime;
 	struct tm d;
 
-	if (localtime_r(&month, &d) == NULL) {
-		return 1;
+	if (!cfg.useutc) {
+		return label;
 	}
+	if (localtime_r(&label, &d) == NULL) {
+		return (time_t)-1;
+	}
+	return timegm(&d);
+}
 
-	d.tm_mday = cfg.monthrotate;
-	d.tm_hour = d.tm_min = d.tm_sec = 0;
+time_t billingperiodstart(time_t label, const int yearly, const int next)
+{
+	static const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+	struct tm d;
+	int lastday;
 
-	if ((updated - month) > 0) {
-		motime = mktime(&d);
-		if (motime >= 0) {
-			return updated - motime;
-		} else {
-			return 1;
-		}
+	if (localtime_r(&label, &d) == NULL) {
+		return (time_t)-1;
+	}
+	if (yearly) {
+		d.tm_mon = 0;
+		d.tm_year += next;
 	} else {
+		d.tm_mon += next;
+	}
+	/* 先把目标月份归到 0..11，避免后续直接 mktime 时因为短月天数不够而串月 */
+	while (d.tm_mon > 11) {
+		d.tm_mon -= 12;
+		d.tm_year++;
+	}
+	while (d.tm_mon < 0) {
+		d.tm_mon += 12;
+		d.tm_year--;
+	}
+	lastday = days[d.tm_mon] + (d.tm_mon == 1 && isleapyear(d.tm_year + 1900));
+	d.tm_mday = (!yearly || cfg.monthrotateyears) ? cfg.monthrotate : 1;
+	if (d.tm_mday > lastday) {
+		d.tm_mday = lastday;
+	}
+	d.tm_hour = (!yearly || cfg.monthrotateyears) ? cfg.monthrotatehour : 0;
+	d.tm_min = (!yearly || cfg.monthrotateyears) ? cfg.monthrotateminute : 0;
+	d.tm_sec = 0;
+	d.tm_isdst = -1;
+	return cfg.useutc ? timegm(&d) : mktime(&d);
+}
+
+time_t mosecs(time_t month, time_t updated)
+{
+	time_t start = billingperiodstart(month, 0, 0);
+
+	updated = billingcalendartime(updated);
+	month = billingcalendartime(month);
+	if (start == (time_t)-1 || updated <= start || updated <= month) {
 		return 1;
 	}
+	return updated - start;
 }
 
 uint64_t countercalc(const uint64_t *a, const uint64_t *b, const short is64bit)

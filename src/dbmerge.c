@@ -232,6 +232,7 @@ int mergeinterface(sqlite3 *srcdb, const char *srciface, sqlite3 *dstdb, const c
 		db = srcdb;
 		if (!db_getdata(&datalist, &datainfo, srciface, datatables[i], 0)) {
 			printf("Error: Failed to fetch %s data for source interface \"%s\".\n", datatables[i], srciface);
+			db = dstdb;
 			db_rollbacktransaction();
 			return 0;
 		}

@@ -304,6 +304,267 @@ START_TEST(getpercentiledata_can_check_limit)
 }
 END_TEST
 
+START_TEST(getpercentiledata_respects_both_billing_cutoffs)
+{
+	const int days[] = {1, 1, 10, 28};
+	const int hours[] = {0, 12, 12, 23};
+	const int minutes[] = {0, 5, 5, 55};
+	time_t start, end;
+	percentiledata pdata;
+
+	cfg.monthrotate = days[_i];
+	cfg.monthrotatehour = hours[_i];
+	cfg.monthrotateminute = minutes[_i];
+	start = (time_t)get_timestamp(2020, 1, days[_i], hours[_i], minutes[_i]);
+	end = (time_t)get_timestamp(2020, 2, days[_i], hours[_i], minutes[_i]);
+	ck_assert_int_eq(db_open_rw(1), 1);
+	ck_assert_int_eq(db_addinterface("interface"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 9000, 9000, (uint64_t)(start - 300)), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 1, 2, (uint64_t)start), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 2, 4, (uint64_t)(start + 300)), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 3, 6, (uint64_t)(end - 300)), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 9000, 9000, (uint64_t)end), 1);
+	/* 即使月表存在脏标签，也不能把下个账期的 5 分钟样本捞进来 */
+	ck_assert_int_eq(db_exec("DELETE FROM month WHERE date >= '2020-02-01'"), 1);
+	ck_assert_int_eq(db_setupdated("interface", end), 1);
+	ck_assert_int_eq(getpercentiledata(&pdata, "interface", 0), 1);
+	ck_assert_int_eq(pdata.monthbegin, start);
+	ck_assert_int_eq(pdata.databegin, start);
+	ck_assert_int_eq(pdata.dataend, end - 300);
+	ck_assert_int_eq(pdata.count, 3);
+	ck_assert_int_eq(pdata.countexpectation, (end - start) / 300);
+	ck_assert_int_eq(pdata.sumrx, 6);
+	ck_assert_int_eq(pdata.sumtx, 12);
+	ck_assert_int_eq(pdata.rxpercentile, 3);
+	ck_assert_int_eq(pdata.txpercentile, 6);
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
+START_TEST(getpercentiledata_keeps_calendar_timestamps_with_non_utc_timezone)
+{
+	percentiledata pdata;
+	struct tm start;
+	time_t entry;
+
+	ck_assert_int_eq(setenv("TZ", "Pacific/Honolulu", 1), 0);
+	tzset();
+	cfg.useutc = _i;
+	strcpy(cfg.dbtzmodifier, cfg.useutc ? "" : DATABASELOCALTIMEMODIFIER);
+	cfg.monthrotate = 10;
+	cfg.monthrotatehour = 12;
+	cfg.monthrotateminute = 5;
+	entry = (time_t)get_timestamp(2020, 1, 10, 12, 5);
+	ck_assert_int_eq(db_open_rw(1), 1);
+	ck_assert_int_eq(db_addinterface("interface"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 9000, 9000, (uint64_t)(entry - 300)), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 1, 2, (uint64_t)entry), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 2, 4, (uint64_t)(entry + 300)), 1);
+	ck_assert_int_eq(getpercentiledata(&pdata, "interface", 0), 1);
+	start = *localtime(&pdata.monthbegin);
+	ck_assert_int_eq(start.tm_mday, 10);
+	ck_assert_int_eq(start.tm_hour, 12);
+	ck_assert_int_eq(start.tm_min, 5);
+	ck_assert_int_eq(pdata.count, 2);
+	ck_assert_int_eq(pdata.countexpectation, 2);
+	ck_assert_int_eq(pdata.sumrx, 3);
+	ck_assert_int_eq(pdata.sumtx, 6);
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
+START_TEST(getpercentiledata_handles_epoch_month_in_eastward_timezone)
+{
+	percentiledata pdata;
+	dbdatalist *samples = NULL;
+	dbdatalistinfo sampleinfo;
+	struct tm start, sample;
+
+	ck_assert_int_eq(setenv("TZ", "Asia/Singapore", 1), 0);
+	tzset();
+	cfg.useutc = _i;
+	strcpy(cfg.dbtzmodifier, cfg.useutc ? "" : DATABASELOCALTIMEMODIFIER);
+	ck_assert_int_eq(db_open_rw(1), 1);
+	ck_assert_int_eq(db_addinterface("interface"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 0, 0, 85000), 1);
+	ck_assert_int_eq(db_setupdated("interface", 85000), 1);
+	ck_assert_int_eq(db_getdata_range(&samples, &sampleinfo, "interface", "fiveminute", 0, "", ""), 1);
+	ck_assert_int_eq(sampleinfo.count, 1);
+	sample = *localtime(&sampleinfo.maxtime);
+	ck_assert_int_eq(sample.tm_year, 70);
+	ck_assert_int_eq(sample.tm_mon, 0);
+	dbdatalistfree(&samples);
+	ck_assert_msg(getpercentiledata(&pdata, "interface", 0) == 1, "%s", errorstring);
+	start = *localtime(&pdata.monthbegin);
+	ck_assert_int_eq(start.tm_year, 70);
+	ck_assert_int_eq(start.tm_mon, 0);
+	ck_assert_int_eq(start.tm_mday, 1);
+	ck_assert_int_eq(start.tm_hour, 0);
+	ck_assert_int_eq(start.tm_min, 0);
+	ck_assert_int_eq(pdata.count, 1);
+	/* 各版本 SQLite 对 1970 年时区偏移换算不同，按 db_getdata_range 实际吐出的时间核对 */
+	ck_assert_int_eq(pdata.databegin, sampleinfo.mintime);
+	ck_assert_int_eq(pdata.dataend, sampleinfo.maxtime);
+	ck_assert_int_eq(pdata.countexpectation,
+		((sample.tm_mday - 1) * 1440 + sample.tm_hour * 60 + sample.tm_min) / 5 + 1);
+	ck_assert_int_eq(pdata.sumrx, 0);
+	ck_assert_int_eq(pdata.sumtx, 0);
+	ck_assert_int_eq(pdata.rxpercentile, 0);
+	ck_assert_int_eq(pdata.txpercentile, 0);
+	ck_assert_int_eq(pdata.sumpercentile, 0);
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
+static time_t percentile_query_calendar_time(const time_t timestamp)
+{
+	struct tm calendar;
+
+	if (!cfg.useutc) {
+		return timestamp;
+	}
+	calendar = *gmtime(&timestamp);
+	calendar.tm_isdst = -1;
+	return mktime(&calendar);
+}
+
+START_TEST(getpercentiledata_uses_only_complete_slots_for_every_cutoff_minute)
+{
+	percentiledata pdata;
+	time_t start, end, first, last;
+	const int minute = _i % 60;
+
+	ck_assert_int_eq(setenv("TZ", "Asia/Singapore", 1), 0);
+	tzset();
+	cfg.useutc = _i / 60;
+	strcpy(cfg.dbtzmodifier, cfg.useutc ? "" : DATABASELOCALTIMEMODIFIER);
+	cfg.monthrotate = 10;
+	cfg.monthrotatehour = 23;
+	cfg.monthrotateminute = minute;
+	start = (time_t)get_timestamp(2020, 1, 10, 23, minute);
+	end = (time_t)get_timestamp(2020, 2, 10, 23, minute);
+	first = (time_t)get_timestamp(2020, 1, 10, 23, (minute + 4) / 5 * 5);
+	last = (time_t)get_timestamp(2020, 2, 10, 23, minute / 5 * 5) - 300;
+	ck_assert_int_eq(db_open_rw(1), 1);
+	ck_assert_int_eq(db_addinterface("interface"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 9000, 9000, (uint64_t)(first - 300)), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 1, 2, (uint64_t)first), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 2, 4, (uint64_t)(first + 600)), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 3, 6, (uint64_t)last), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 9000, 9000, (uint64_t)(last + 300)), 1);
+	ck_assert_int_eq(db_exec("DELETE FROM month WHERE date >= '2020-02-01'"), 1);
+	ck_assert_int_eq(db_setupdated("interface", end), 1);
+	ck_assert_msg(getpercentiledata(&pdata, "interface", 0) == 1, "%s", errorstring);
+	ck_assert_int_eq(pdata.monthbegin, percentile_query_calendar_time(start));
+	ck_assert_int_eq(pdata.databegin, percentile_query_calendar_time(first));
+	ck_assert_int_eq(pdata.dataend, percentile_query_calendar_time(last));
+	ck_assert_int_eq(pdata.count, 3);
+	ck_assert_int_eq(pdata.countexpectation, (last - first) / 300 + 1);
+	ck_assert_int_eq(pdata.sumrx, 6);
+	ck_assert_int_eq(pdata.sumtx, 12);
+	ck_assert_int_eq(pdata.rxpercentile, 3);
+	ck_assert_int_eq(pdata.txpercentile, 6);
+	ck_assert_int_eq(pdata.sumpercentile, 9);
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
+START_TEST(getpercentiledata_counts_missing_slots_from_first_complete_slot)
+{
+	percentiledata pdata;
+	time_t start, first;
+	const int minute = 55 + _i % 5;
+
+	ck_assert_int_eq(setenv("TZ", "Pacific/Honolulu", 1), 0);
+	tzset();
+	cfg.useutc = _i / 5;
+	strcpy(cfg.dbtzmodifier, cfg.useutc ? "" : DATABASELOCALTIMEMODIFIER);
+	cfg.monthrotate = 28;
+	cfg.monthrotatehour = 23;
+	cfg.monthrotateminute = minute;
+	start = (time_t)get_timestamp(2020, 1, 28, 23, minute);
+	first = (time_t)get_timestamp(2020, 1, 28, 23, (minute + 4) / 5 * 5);
+	ck_assert_int_eq(db_open_rw(1), 1);
+	ck_assert_int_eq(db_addinterface("interface"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 1, 2, (uint64_t)(first + 300)), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 2, 4, (uint64_t)(first + 900)), 1);
+	ck_assert_msg(getpercentiledata(&pdata, "interface", 0) == 1, "%s", errorstring);
+	ck_assert_int_eq(pdata.monthbegin, percentile_query_calendar_time(start));
+	ck_assert_int_eq(pdata.databegin, percentile_query_calendar_time(first + 300));
+	ck_assert_int_eq(pdata.dataend, percentile_query_calendar_time(first + 900));
+	ck_assert_int_eq(pdata.count, 2);
+	ck_assert_int_eq(pdata.countexpectation, 4);
+	ck_assert_int_eq(pdata.sumrx, 3);
+	ck_assert_int_eq(pdata.sumtx, 6);
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
+START_TEST(getpercentiledata_returns_no_data_with_only_mixed_period_slots)
+{
+	const int minutes[] = {1, 2, 3, 4, 56, 57, 58, 59};
+	percentiledata pdata;
+	time_t start, first, endfloor;
+	const int minute = minutes[_i % 8];
+
+	ck_assert_int_eq(setenv("TZ", "Asia/Singapore", 1), 0);
+	tzset();
+	cfg.useutc = _i / 8;
+	strcpy(cfg.dbtzmodifier, cfg.useutc ? "" : DATABASELOCALTIMEMODIFIER);
+	cfg.monthrotate = 10;
+	cfg.monthrotatehour = 23;
+	cfg.monthrotateminute = minute;
+	start = (time_t)get_timestamp(2020, 1, 10, 23, minute);
+	first = (time_t)get_timestamp(2020, 1, 10, 23, (minute + 4) / 5 * 5);
+	endfloor = (time_t)get_timestamp(2020, 2, 10, 23, minute / 5 * 5);
+	ck_assert_int_eq(db_open_rw(1), 1);
+	ck_assert_int_eq(db_addinterface("interface"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 9000, 9000, (uint64_t)(first - 300)), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 9000, 9000, (uint64_t)endfloor), 1);
+	ck_assert_int_eq(db_exec("DELETE FROM month"), 1);
+	ck_assert_int_eq(db_exec("INSERT INTO month (interface, date, rx, tx) SELECT id, '2020-01-01', 0, 0 FROM interface"), 1);
+	suppress_output();
+	ck_assert_int_eq(getpercentiledata(&pdata, "interface", 0), 0);
+	ck_assert_str_eq(errorstring, "No 5 minute data for 95th percentile available.");
+	ck_assert_int_eq(pdata.monthbegin, percentile_query_calendar_time(start));
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
+START_TEST(getpercentiledata_rounds_calendar_cutoff_across_dst_gap)
+{
+	percentiledata pdata;
+	time_t start, first, last;
+
+	ck_assert_int_eq(setenv("TZ", "America/New_York", 1), 0);
+	tzset();
+	cfg.useutc = 0;
+	strcpy(cfg.dbtzmodifier, DATABASELOCALTIMEMODIFIER);
+	cfg.monthrotate = 8;
+	cfg.monthrotatehour = 1;
+	cfg.monthrotateminute = 58;
+	start = (time_t)get_timestamp(2020, 3, 8, 1, 58);
+	first = (time_t)get_timestamp(2020, 3, 8, 3, 0);
+	last = (time_t)get_timestamp(2020, 4, 8, 1, 50);
+	ck_assert_int_eq(db_open_rw(1), 1);
+	ck_assert_int_eq(db_addinterface("interface"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 9000, 9000, (uint64_t)(first - 300)), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 1, 2, (uint64_t)first), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 2, 4, (uint64_t)(first + 300)), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 3, 6, (uint64_t)last), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 9000, 9000, (uint64_t)(last + 300)), 1);
+	ck_assert_msg(getpercentiledata(&pdata, "interface", 0) == 1, "%s", errorstring);
+	ck_assert_int_eq(pdata.monthbegin, start);
+	ck_assert_int_eq(pdata.databegin, first);
+	ck_assert_int_eq(pdata.dataend, last);
+	ck_assert_int_eq(pdata.count, 3);
+	ck_assert_int_eq(pdata.countexpectation, (last - first) / 300 + 1);
+	ck_assert_int_eq(pdata.sumrx, 6);
+	ck_assert_int_eq(pdata.sumtx, 12);
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
 void add_percentile_tests(Suite *s)
 {
 	TCase *tc_percentile = tcase_create("Percentile");
@@ -317,5 +578,12 @@ void add_percentile_tests(Suite *s)
 	tcase_add_test(tc_percentile, getpercentiledata_can_provide_data_with_many_entries);
 	tcase_add_test(tc_percentile, getpercentiledata_can_provide_data_with_many_entries_and_order_does_not_matter);
 	tcase_add_test(tc_percentile, getpercentiledata_can_check_limit);
+	tcase_add_loop_test(tc_percentile, getpercentiledata_respects_both_billing_cutoffs, 0, 4);
+	tcase_add_loop_test(tc_percentile, getpercentiledata_keeps_calendar_timestamps_with_non_utc_timezone, 0, 2);
+	tcase_add_loop_test(tc_percentile, getpercentiledata_handles_epoch_month_in_eastward_timezone, 0, 2);
+	tcase_add_loop_test(tc_percentile, getpercentiledata_uses_only_complete_slots_for_every_cutoff_minute, 0, 120);
+	tcase_add_loop_test(tc_percentile, getpercentiledata_counts_missing_slots_from_first_complete_slot, 0, 10);
+	tcase_add_loop_test(tc_percentile, getpercentiledata_returns_no_data_with_only_mixed_period_slots, 0, 16);
+	tcase_add_test(tc_percentile, getpercentiledata_rounds_calendar_cutoff_across_dst_gap);
 	suite_add_tcase(s, tc_percentile);
 }

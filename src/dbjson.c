@@ -1,6 +1,22 @@
 #include "common.h"
 #include "dbjson.h"
 
+/* localeconv 小数点在部分地区设置下是逗号，这里统一输出成 JSON 标准的点号 */
+static void jsonpercentage(const double percentage)
+{
+	char buffer[64], *decimal;
+	const char *separator = localeconv()->decimal_point;
+
+	snprintf(buffer, sizeof(buffer), "%0.1f", percentage);
+	decimal = separator[0] ? strstr(buffer, separator) : NULL;
+	if (decimal != NULL) {
+		fwrite(buffer, 1, (size_t)(decimal - buffer), stdout);
+		printf(".%s", decimal + strlen(separator));
+	} else {
+		fputs(buffer, stdout);
+	}
+}
+
 void showjson(const char *interface, const int ifcount, const char mode, const char *databegin, const char *dataend)
 {
 	interfaceinfo ifaceinfo;
@@ -137,7 +153,8 @@ void jsonpercentile(const interfaceinfo *ifaceinfo)
 	printf("\"seen\":%" PRIu32 ",", pdata.count);
 	printf("\"expected\":%" PRIu32 ",", pdata.countexpectation);
 	printf("\"missing\":%" PRIu32 ",", pdata.countexpectation - pdata.count);
-	printf("\"coverage_percentage\":%0.1f", pdata.count / (double)pdata.countexpectation * 100.0);
+	printf("\"coverage_percentage\":");
+	jsonpercentage(pdata.count / (double)pdata.countexpectation * 100.0);
 	printf("},");
 
 	jsonpercentileminavgmax(&pdata);
@@ -216,7 +233,8 @@ void jsonalert(const alertdata *adata, const uint64_t limit)
 	}
 	printf("\"used_percentage\":");
 	if (percentage <= 100000.0) {
-		printf("%0.1f,", percentage);
+		jsonpercentage(percentage);
+		printf(",");
 	} else {
 		printf("100000.0,");
 	}
@@ -224,7 +242,7 @@ void jsonalert(const alertdata *adata, const uint64_t limit)
 	if (percentage >= 100.0) {
 		printf("0.0");
 	} else {
-		printf("%0.1f", 100.0 - percentage);
+		jsonpercentage(100.0 - percentage);
 	}
 	printf("}");
 
@@ -248,7 +266,8 @@ void jsonalert(const alertdata *adata, const uint64_t limit)
 		}
 		printf("\"used_percentage\":");
 		if (percentage <= 100000.0) {
-			printf("%0.1f,", percentage);
+			jsonpercentage(percentage);
+			printf(",");
 		} else {
 			printf("100000.0,");
 		}
@@ -256,7 +275,7 @@ void jsonalert(const alertdata *adata, const uint64_t limit)
 		if (percentage >= 100.0) {
 			printf("0.0");
 		} else {
-			printf("%0.1f", 100.0 - percentage);
+			jsonpercentage(100.0 - percentage);
 		}
 		printf("}");
 	}
@@ -295,7 +314,8 @@ void jsonpercentilealert(const alertdata *adata, const AlertCondition condition,
 	printf("\"used_bytes_per_second\":%" PRIu64 ",", adata->used);
 	printf("\"used_percentage\":");
 	if (percentage <= 100000.0) {
-		printf("%0.1f,", percentage);
+		jsonpercentage(percentage);
+		printf(",");
 	} else {
 		printf("100000.0,");
 	}
@@ -303,7 +323,7 @@ void jsonpercentilealert(const alertdata *adata, const AlertCondition condition,
 	if (percentage >= 100.0) {
 		printf("0.0");
 	} else {
-		printf("%0.1f", 100.0 - percentage);
+		jsonpercentage(100.0 - percentage);
 	}
 	printf("},");
 
@@ -313,16 +333,21 @@ void jsonpercentilealert(const alertdata *adata, const AlertCondition condition,
 	printf("\"seen\":%" PRIu32 ",", adata->pdata.count);
 	printf("\"expected\":%" PRIu32 ",", adata->pdata.countexpectation);
 	printf("\"missing\":%" PRIu32 ",", adata->pdata.countexpectation - adata->pdata.count);
-	printf("\"coverage_percentage\":%0.1f,", adata->pdata.count / (double)adata->pdata.countexpectation * 100.0);
+	printf("\"coverage_percentage\":");
+	jsonpercentage(adata->pdata.count / (double)adata->pdata.countexpectation * 100.0);
+	printf(",");
 	if (condition == AC_RX) {
 		printf("\"over_limit\":%" PRIu32 ",", adata->pdata.countrxoveruserlimit);
-		printf("\"over_limit_percentage\":%0.1f", adata->pdata.countrxoveruserlimit / (double)adata->pdata.count * 100.0);
+		printf("\"over_limit_percentage\":");
+		jsonpercentage(adata->pdata.countrxoveruserlimit / (double)adata->pdata.count * 100.0);
 	} else if (condition == AC_TX) {
 		printf("\"over_limit\":%" PRIu32 ",", adata->pdata.counttxoveruserlimit);
-		printf("\"over_limit_percentage\":%0.1f", adata->pdata.counttxoveruserlimit / (double)adata->pdata.count * 100.0);
+		printf("\"over_limit_percentage\":");
+		jsonpercentage(adata->pdata.counttxoveruserlimit / (double)adata->pdata.count * 100.0);
 	} else if (condition == AC_Total) {
 		printf("\"over_limit\":%" PRIu32 ",", adata->pdata.countsumoveruserlimit);
-		printf("\"over_limit_percentage\":%0.1f", adata->pdata.countsumoveruserlimit / (double)adata->pdata.count * 100.0);
+		printf("\"over_limit_percentage\":");
+		jsonpercentage(adata->pdata.countsumoveruserlimit / (double)adata->pdata.count * 100.0);
 	}
 	printf("}");
 
@@ -344,12 +369,10 @@ void jsoninterfaceinfo(const interfaceinfo *ifaceinfo)
 	jsondate(&ifaceinfo->updated, 2);
 	printf("},");
 	printf("\"monthrotate\":%" PRId32 ",", cfg.monthrotate);
-	printf("\"monthrotateaffectsyears\":");
-	if (cfg.monthrotateyears) {
-		printf("true,");
-	} else {
-		printf("false,");
-	}
+	printf("\"monthrotatehour\":%" PRId32 ",", cfg.monthrotatehour);
+	printf("\"monthrotateminute\":%" PRId32 ",", cfg.monthrotateminute);
+	printf("\"monthrotateaffectsyears\":%s,", cfg.monthrotateyears ? "true" : "false");
+	printf("\"useutc\":%s,", cfg.useutc ? "true" : "false");
 }
 
 void jsondate(const time_t *date, const int type)
@@ -407,7 +430,9 @@ void jsonstring(const char *s)
 
 void jsonheader(const char *version)
 {
-	printf("{\"vnstatversion\":\"%s\",\"jsonversion\":\"%s\",\"interfaces\":[", getversion(), version);
+	printf("{\"vnstatversion\":\"%s\",\"jsonversion\":\"%s\",\"monthrotate\":%" PRId32 ",\"monthrotatehour\":%" PRId32 ",\"monthrotateminute\":%" PRId32 ",\"monthrotateaffectsyears\":%s,\"useutc\":%s,\"interfaces\":[",
+	       getversion(), version, cfg.monthrotate, cfg.monthrotatehour, cfg.monthrotateminute,
+	       cfg.monthrotateyears ? "true" : "false", cfg.useutc ? "true" : "false");
 }
 
 void jsonfooter(void)

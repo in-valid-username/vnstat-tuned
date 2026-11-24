@@ -199,13 +199,17 @@ void printcfgfile(void)
 	defaultcomment(cfg.alwaysadd == ALWAYSADD);
 	printf("AlwaysAddNewInterfaces %d\n\n", cfg.alwaysadd);
 
-	printf("# on which day should months change\n");
+	printf("# on which day should months change (1..31; short months use their last day)\n");
 	defaultcomment(cfg.monthrotate == MONTHROTATE);
 	printf("MonthRotate %d\n", cfg.monthrotate);
+	defaultcomment(cfg.monthrotatehour == MONTHROTATEHOUR);
+	printf("MonthRotateHour %d\n", cfg.monthrotatehour);
+	defaultcomment(cfg.monthrotateminute == MONTHROTATEMINUTE);
+	printf("MonthRotateMinute %d\n", cfg.monthrotateminute);
 	defaultcomment(cfg.monthrotateyears == MONTHROTATEYEARS);
 	printf("MonthRotateAffectsYears %d\n", cfg.monthrotateyears);
 	printf("# visibility of note about MonthRotate in outputs showing monthly data\n");
-	printf("# (0 = never, 1 = when MonthRotate != 1, 2 = always)\n");
+	printf("# (0 = never, 1 = when MonthRotate != 1 or hour/minute is non-zero, 2 = always)\n");
 	defaultcomment(cfg.monthrotatevisible == MONTHROTATEVISIBLE);
 	printf("MonthRotateVisible %d\n\n", cfg.monthrotatevisible);
 

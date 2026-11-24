@@ -6,7 +6,7 @@
 
 use strict;
 use JSON::PP;
-use Time::Local qw(timelocal_nocheck);
+use Time::Local qw(timelocal_nocheck timegm_nocheck);
 
 # location of vnstat binary
 my $vnstat_cmd = '/usr/bin/vnstat';
@@ -78,53 +78,84 @@ sub print_updated
 sub normalized_monthrotate
 {
 	my ($monthrotate) = @_;
-	if (!defined $monthrotate || $monthrotate !~ /^\d+$/ || $monthrotate < 1 || $monthrotate > 28) {
+	if (!defined $monthrotate || $monthrotate !~ /^\d+$/ || $monthrotate < 1 || $monthrotate > 31) {
 		return 1;
 	}
 	return int($monthrotate);
 }
 
-# JSON true only. false, a missing field, and an integer leave the year unshifted.
-sub monthrotate_affects_years
+sub normalized_int_range
+{
+	my ($value, $min, $max, $default) = @_;
+	if (!defined $value || $value !~ /^\d+$/ || $value < $min || $value > $max) {
+		return $default;
+	}
+	return int($value);
+}
+
+# 只有 JSON 布尔值 true 才算开启；缺字段或数字都按关闭算
+sub json_flag
 {
 	my ($value) = @_;
 	return ref($value) eq 'JSON::PP::Boolean' && $value ? 1 : 0;
 }
 
-# Bucket label vnStat stores for $when. Five-minute labels use round(minute/5)*5,
-# which can sit ahead of the clock; flooring to 300 seconds would drop a live row.
-# timelocal_nocheck normalizes minute 60 and a day shifted before the 1st.
-# The year label uses that day shift only when monthrotateaffectsyears is JSON true.
+sub days_in_month
+{
+	my ($year1900, $month_index) = @_;
+	my @days = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31);
+	my $year = $year1900 + 1900;
+	my $leap = ($year % 4 == 0 && ($year % 100 != 0 || $year % 400 == 0)) ? 1 : 0;
+	return $days[$month_index] + ($month_index == 1 ? $leap : 0);
+}
+
+# 按 vnStat 入库口径算出 $when 对应的桶时间戳。
+# 5 分钟桶是四舍五入（round(min/5)*5），可能比当前系统时间超前几分钟，不能直接向下取整。
+# 无论 UseUTC 是否开启，db_getdata_range 吐出来的 JSON timestamp 都是按进程本地时区映射的日历时间，
+# 所以先在账期时区里判定落在哪个月/年，最后统一用 timelocal_nocheck 转成与 JSON 一致的时间戳。
 sub current_bucket_timestamp
 {
-	my ($resolution, $monthrotate, $monthrotateyears, $when) = @_;
+	my ($resolution, $billing, $when) = @_;
 	$when = time() unless defined $when;
-	my ($sec, $min, $hour, $mday, $mon, $year) = localtime($when);
+	my $use_utc = json_flag($billing->{'useutc'});
+	my ($sec, $min, $hour, $day, $mon, $year) = $use_utc ? gmtime($when) : localtime($when);
 
 	if ($resolution eq 'fiveminute') {
 		$min = int($min / 5 + 0.5) * 5;
-		return timelocal_nocheck(0, $min, $hour, $mday, $mon, $year);
+		return timelocal_nocheck(0, $min, $hour, $day, $mon, $year);
 	}
 	if ($resolution eq 'hour') {
-		return timelocal_nocheck(0, 0, $hour, $mday, $mon, $year);
+		return timelocal_nocheck(0, 0, $hour, $day, $mon, $year);
 	}
 	if ($resolution eq 'day') {
-		return timelocal_nocheck(0, 0, 0, $mday, $mon, $year);
+		return timelocal_nocheck(0, 0, 0, $day, $mon, $year);
 	}
+	my $month_rotate = normalized_monthrotate($billing->{'monthrotate'});
+	my $rotate_hour = normalized_int_range($billing->{'monthrotatehour'}, 0, 23, 0);
+	my $rotate_min = normalized_int_range($billing->{'monthrotateminute'}, 0, 59, 0);
 	if ($resolution eq 'month') {
-		my $shift = normalized_monthrotate($monthrotate) - 1;
-		if ($shift) {
-			($sec, $min, $hour, $mday, $mon, $year) = localtime(timelocal_nocheck($sec, $min, $hour, $mday - $shift, $mon, $year));
+		my $last = days_in_month($year, $mon);
+		my $boundary_day = $month_rotate > $last ? $last : $month_rotate;
+		my $boundary = $use_utc
+			? timegm_nocheck(0, $rotate_min, $rotate_hour, $boundary_day, $mon, $year)
+			: timelocal_nocheck(0, $rotate_min, $rotate_hour, $boundary_day, $mon, $year);
+		if ($when < $boundary) {
+			$mon--;
+			if ($mon < 0) {
+				$mon = 11;
+				$year--;
+			}
 		}
 		return timelocal_nocheck(0, 0, 0, 1, $mon, $year);
 	}
 	if ($resolution eq 'year') {
-		my $shift = 0;
-		if (monthrotate_affects_years($monthrotateyears)) {
-			$shift = normalized_monthrotate($monthrotate) - 1;
-		}
-		if ($shift) {
-			($sec, $min, $hour, $mday, $mon, $year) = localtime(timelocal_nocheck($sec, $min, $hour, $mday - $shift, $mon, $year));
+		if (json_flag($billing->{'monthrotateaffectsyears'})) {
+			my $boundary = $use_utc
+				? timegm_nocheck(0, $rotate_min, $rotate_hour, $month_rotate, 0, $year)
+				: timelocal_nocheck(0, $rotate_min, $rotate_hour, $month_rotate, 0, $year);
+			if ($when < $boundary) {
+				$year--;
+			}
 		}
 		return timelocal_nocheck(0, 0, 0, 1, 0, $year);
 	}
@@ -133,7 +164,7 @@ sub current_bucket_timestamp
 
 sub current_resolution_value
 {
-	my ($interface, $resolution, $field) = @_;
+	my ($data, $interface, $resolution, $field) = @_;
 	my $rows = $interface->{'traffic'}{$resolution};
 	return unless ref($rows) eq 'ARRAY' && @{$rows};
 	my $row = $rows->[0];
@@ -141,7 +172,14 @@ sub current_resolution_value
 	return unless defined $row->{$field};
 	my $timestamp = $row->{'timestamp'};
 	return unless defined $timestamp && $timestamp =~ /^-?\d+$/;
-	my $bucket = current_bucket_timestamp($resolution, $interface->{'monthrotate'}, $interface->{'monthrotateaffectsyears'});
+	my %billing = (
+		monthrotate => defined $interface->{'monthrotate'} ? $interface->{'monthrotate'} : $data->{'monthrotate'},
+		monthrotatehour => defined $interface->{'monthrotatehour'} ? $interface->{'monthrotatehour'} : $data->{'monthrotatehour'},
+		monthrotateminute => defined $interface->{'monthrotateminute'} ? $interface->{'monthrotateminute'} : $data->{'monthrotateminute'},
+		monthrotateaffectsyears => defined $interface->{'monthrotateaffectsyears'} ? $interface->{'monthrotateaffectsyears'} : $data->{'monthrotateaffectsyears'},
+		useutc => defined $interface->{'useutc'} ? $interface->{'useutc'} : $data->{'useutc'},
+	);
+	my $bucket = current_bucket_timestamp($resolution, \%billing);
 	return unless defined $bucket && $timestamp == $bucket;
 	return $row->{$field};
 }
@@ -156,7 +194,7 @@ sub print_data_resolution
 
 	$output_count = 0;
 	foreach my $interface ( @{ $data->{'interfaces'} } ) {
-		my $rx = current_resolution_value($interface, $resolution, 'rx');
+		my $rx = current_resolution_value($data, $interface, $resolution, 'rx');
 		if (defined $rx) {
 			my $interface_alias = get_interface_alias($interface);
 			print "vnstat_interface_".$resolution."_received_bytes{" . prom_interface_labels($interface->{'name'}, $interface_alias) . "} $rx\n";
@@ -172,7 +210,7 @@ sub print_data_resolution
 
 	$output_count = 0;
 	foreach my $interface ( @{ $data->{'interfaces'} } ) {
-		my $tx = current_resolution_value($interface, $resolution, 'tx');
+		my $tx = current_resolution_value($data, $interface, $resolution, 'tx');
 		if (defined $tx) {
 			my $interface_alias = get_interface_alias($interface);
 			print "vnstat_interface_".$resolution."_transmitted_bytes{" . prom_interface_labels($interface->{'name'}, $interface_alias) . "} $tx\n";

@@ -525,6 +525,9 @@ int drawfiveminutes(IMAGECONTENT *ic, const int xpos, const int ypos, const int 
 	graph_draw_axis_value(ic, plot_x0 - 1, y, "  0", plot_x0 - 21 - imageextrapx(ic, 3), y - 4 - imageextrapx(ic, 3));
 
 	/* scale values */
+	if (max == 0) {
+		max = 1;
+	}
 	scaleunit = getscale(max, israte);
 
 	s = (int)lrint(((double)scaleunit / (double)max) * t);
@@ -689,7 +692,7 @@ int drawfiveminutes(IMAGECONTENT *ic, const int xpos, const int ypos, const int 
 			e = 1;
 		}
 
-		t = (int)lrint(((double)datalist_i->rx / e / (double)datainfo.maxrx) * rxh);
+		t = datainfo.maxrx == 0 ? 0 : (int)lrint(((double)datalist_i->rx / e / (double)datainfo.maxrx) * rxh);
 		if (t > rxh) {
 			t = rxh;
 		}
@@ -697,7 +700,7 @@ int drawfiveminutes(IMAGECONTENT *ic, const int xpos, const int ypos, const int 
 			drawpole(ic, px + b, center_y - 1, t, 1, ic->crx);
 		}
 
-		t = (int)lrint(((double)datalist_i->tx / e / (double)datainfo.maxtx) * txh);
+		t = datainfo.maxtx == 0 ? 0 : (int)lrint(((double)datalist_i->tx / e / (double)datainfo.maxtx) * txh);
 		if (t > txh) {
 			t = txh;
 		}
@@ -825,7 +828,7 @@ int drawpercentile(IMAGECONTENT *ic, const int mode, const int xpos, const int y
 	const struct tm *d;
 	const char *val;
 	time_t current;
-	char datebuff[DATEBUFFLEN];
+	char datebuff[DATEBUFFLEN], dateend[DATEBUFFLEN];
 	dbdatalist *datalist = NULL, *datalist_i = NULL;
 	dbdatalistinfo datainfo;
 	percentiledata pdata;
@@ -854,9 +857,11 @@ int drawpercentile(IMAGECONTENT *ic, const int mode, const int xpos, const int y
 	}
 
 	d = localtime(&pdata.monthbegin);
-	strftime(datebuff, DATEBUFFLEN, "%Y-%m-%d", d);
+	strftime(datebuff, DATEBUFFLEN, "%Y-%m-%d %H:%M", d);
+	d = localtime(&pdata.dataend);
+	strftime(dateend, DATEBUFFLEN, "%Y-%m-%d %H:%M", d);
 
-	if (!db_getdata_range(&datalist, &datainfo, ic->interface.name, "percentile", PERCENTILEENTRYCOUNT, datebuff, "") || datainfo.count == 0) {
+	if (!db_getdata_range(&datalist, &datainfo, ic->interface.name, "percentile", PERCENTILEENTRYCOUNT, datebuff, dateend) || datainfo.count == 0) {
 		imagestring(ic, FONT_ROLE_BODY, x + plot_w / 2 - 30 * ic->fontctx.cw / 2, y - height / 2 - ic->fontctx.ch, "no percentile data available", ic->ctext);
 		return 0;
 	}
@@ -883,6 +888,9 @@ int drawpercentile(IMAGECONTENT *ic, const int mode, const int xpos, const int y
 
 	if ((uint64_t)((double)(percentile_val) / percentileratediv) > max) {
 		max = (uint64_t)((double)(percentile_val) / percentileratediv);
+	}
+	if (max == 0) {
+		max = 1;
 	}
 
 	/* scale values */

@@ -557,7 +557,7 @@ int initcachevalues(const DSTATE *s, datacache **dc)
 {
 	interfaceinfo ifaceinfo;
 
-	if (!db_getinterfaceinfo((*dc)->interface, &ifaceinfo)) {
+	if (!db_getinterfaceinfo_epoch((*dc)->interface, &ifaceinfo)) {
 		return 0;
 	}
 
@@ -579,7 +579,7 @@ int processifinfo(DSTATE *s, datacache **dc)
 	uint64_t rxchange, txchange;
 	uint64_t maxtransfer;
 	uint32_t maxbw;
-	time_t interval;
+	time_t interval, cacheinterval;
 	short detected64bit = 0;
 
 	if ((*dc)->syncneeded) { /* if --sync was used during startup */
@@ -643,7 +643,9 @@ int processifinfo(DSTATE *s, datacache **dc)
 		}
 
 		if (rxchange || txchange || cfg.trafficlessentries) {
-			xferlog_add(&(*dc)->log, (*dc)->updated - ((*dc)->updated % 300), rxchange, txchange);
+			/* 账期分钟不是 5 的整数倍时按 1 分钟分桶，让跨越账期边界的流量不会混在同一个 5 分钟格子里 */
+			cacheinterval = (cfg.monthrotateminute % 5 != 0) ? 60 : 300;
+			xferlog_add(&(*dc)->log, (*dc)->updated - ((*dc)->updated % cacheinterval), rxchange, txchange);
 		}
 	}
 	(*dc)->currx = ifinfo.rx;

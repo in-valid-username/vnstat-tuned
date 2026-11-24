@@ -526,9 +526,16 @@ int validatedatetime(const char *str)
 int issametimeslot(const ListType listtype, const time_t entry, const time_t updated)
 {
 	struct tm e, u;
+	time_t start, end, ucal;
 
 	if (updated < entry) {
 		return 0;
+	}
+	if (listtype == LT_Month || listtype == LT_Year) {
+		start = billingperiodstart(entry, listtype == LT_Year, 0);
+		end = billingperiodstart(entry, listtype == LT_Year, 1);
+		ucal = billingcalendartime(updated);
+		return start != (time_t)-1 && end != (time_t)-1 && ucal >= start && ucal < end;
 	}
 
 	if (entry == updated) {
@@ -578,6 +585,29 @@ uint64_t getperiodseconds(const ListType listtype, const time_t entry, const tim
 {
 	struct tm e, u;
 	uint64_t seconds = 0;
+	time_t start, end, ccal, ucal;
+
+	if (listtype == LT_Month || (listtype == LT_Year && cfg.monthrotateyears)) {
+		start = billingperiodstart(entry, listtype == LT_Year, 0);
+		end = billingperiodstart(entry, listtype == LT_Year, 1);
+		if (start == (time_t)-1 || end == (time_t)-1 || end <= start) {
+			return 0;
+		}
+		if (isongoing) {
+			if (listtype == LT_Month && updated <= entry) {
+				return 1;
+			}
+			ccal = billingcalendartime(created);
+			ucal = billingcalendartime(updated);
+			if (ccal > start && created < updated) {
+				start = ccal;
+			}
+			if (ucal < end) {
+				end = ucal;
+			}
+		}
+		return end > start ? (uint64_t)(end - start) : (uint64_t)(listtype == LT_Month ? 1 : 0);
+	}
 
 	if (localtime_r(&entry, &e) == NULL || localtime_r(&updated, &u) == NULL) {
 		return 0;
@@ -622,6 +652,7 @@ void getestimates(uint64_t *rx, uint64_t *tx, const ListType listtype, const tim
 {
 	struct tm u;
 	uint64_t div = 0, mult = 0, offset = 0;
+	time_t start, end, ucal, ccal;
 	dbdatalist *datalist_i = *dbdata;
 
 	*rx = *tx = 0;
@@ -640,6 +671,26 @@ void getestimates(uint64_t *rx, uint64_t *tx, const ListType listtype, const tim
 	}
 
 	if (datalist_i->rx == 0 || datalist_i->tx == 0) {
+		return;
+	}
+
+	if (listtype == LT_Month || listtype == LT_Year) {
+		start = billingperiodstart(datalist_i->timestamp, listtype == LT_Year, 0);
+		end = billingperiodstart(datalist_i->timestamp, listtype == LT_Year, 1);
+		ucal = billingcalendartime(updated);
+		if (start == (time_t)-1 || end == (time_t)-1 || ucal < start || ucal >= end) {
+			return;
+		}
+		ccal = billingcalendartime(created);
+		if (ccal > start) {
+			start = ccal;
+		}
+		if (ucal > start && end > start) {
+			div = (uint64_t)(ucal - start);
+			mult = (uint64_t)(end - start);
+			*rx = (uint64_t)((double)datalist_i->rx / (double)div) * mult;
+			*tx = (uint64_t)((double)datalist_i->tx / (double)div) * mult;
+		}
 		return;
 	}
 
@@ -719,8 +770,8 @@ int ismonthrotatenoteneeded(void)
 	if (cfg.monthrotatevisible == 2) {
 		return 1;
 	}
-	/* auto: show when MonthRotate is not the default first day of month */
-	return (cfg.monthrotate != 1);
+	/* 设为自动时，只要不是默认的每月 1 号 00:00 就显示账期提示 */
+	return (cfg.monthrotate != 1 || cfg.monthrotatehour != 0 || cfg.monthrotateminute != 0);
 }
 
 void getmonthrotatenote(char *buf, const size_t buflen)
@@ -743,7 +794,11 @@ void getmonthrotatenote(char *buf, const size_t buflen)
 		suffix = "th";
 	}
 
-	snprintf(buf, buflen, "Monthly data begins on the %d%s of each indicated month.", day, suffix);
+	if (cfg.monthrotatehour != 0 || cfg.monthrotateminute != 0) {
+		snprintf(buf, buflen, "Monthly data begins on the %d%s at %02d:%02d of each indicated month.", day, suffix, cfg.monthrotatehour, cfg.monthrotateminute);
+	} else {
+		snprintf(buf, buflen, "Monthly data begins on the %d%s of each indicated month.", day, suffix);
+	}
 }
 
 void showmonthrotatenote(void)

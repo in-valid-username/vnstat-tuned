@@ -126,6 +126,7 @@ am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(sbindir)" \
 PROGRAMS = $(bin_PROGRAMS) $(sbin_PROGRAMS)
 am__check_vnstat_SOURCES_DIST = tests/vnstat_tests.c \
 	tests/vnstat_tests.h tests/common_tests.c tests/common_tests.h \
+	tests/billing_tests.c tests/billing_tests.h \
 	tests/database_tests.c tests/database_tests.h \
 	tests/dbsql_tests.c tests/dbsql_tests.h tests/dbmerge_tests.c \
 	tests/dbmerge_tests.h tests/datacache_tests.c \
@@ -165,6 +166,7 @@ am__dirstamp = $(am__leading_dot)dirstamp
 @HAVE_CHECK_TRUE@am_check_vnstat_OBJECTS =  \
 @HAVE_CHECK_TRUE@	tests/check_vnstat-vnstat_tests.$(OBJEXT) \
 @HAVE_CHECK_TRUE@	tests/check_vnstat-common_tests.$(OBJEXT) \
+@HAVE_CHECK_TRUE@	tests/check_vnstat-billing_tests.$(OBJEXT) \
 @HAVE_CHECK_TRUE@	tests/check_vnstat-database_tests.$(OBJEXT) \
 @HAVE_CHECK_TRUE@	tests/check_vnstat-dbsql_tests.$(OBJEXT) \
 @HAVE_CHECK_TRUE@	tests/check_vnstat-dbmerge_tests.$(OBJEXT) \
@@ -291,6 +293,7 @@ am__depfiles_remade = src/$(DEPDIR)/cfg.Po src/$(DEPDIR)/cfgoutput.Po \
 	src/$(DEPDIR)/percentile.Po src/$(DEPDIR)/traffic.Po \
 	src/$(DEPDIR)/vnstat.Po src/$(DEPDIR)/vnstat_func.Po \
 	src/$(DEPDIR)/vnstatd.Po src/$(DEPDIR)/vnstati.Po \
+	tests/$(DEPDIR)/check_vnstat-billing_tests.Po \
 	tests/$(DEPDIR)/check_vnstat-cli_tests.Po \
 	tests/$(DEPDIR)/check_vnstat-common_tests.Po \
 	tests/$(DEPDIR)/check_vnstat-config_tests.Po \
@@ -741,7 +744,15 @@ top_srcdir = @top_srcdir@
 SUBDIRS = .
 AM_CFLAGS = @CFLAG_EXTRAS@
 dist_man_MANS = man/vnstat.1 man/vnstat.conf.5 man/vnstatd.8 man/vnstati.1
-EXTRA_DIST = cfg examples UPGRADE CHANGES FAQ INSTALL_BSD UNINSTALL
+EXTRA_DIST = cfg examples UPGRADE CHANGES FAQ INSTALL_BSD UNINSTALL \
+	README.md INSTALL.md INSTALL_BSD.md UPGRADE.md UNINSTALL.md \
+	tests/run_fork_checks.py tests/output_parse_tests.py \
+	tests/daemon_smoke.py docs/fork-review.md docs/billing.md docs/output.md \
+	docs/build-and-test.md docs/reference/baseline.md \
+	docs/reference/upstream-readme.txt docs/reports/2026-10-04-validation.md \
+	docs/reports/2026-10-10-update-validation.md \
+	docs/reports/2026-11-01-monthend-validation.md \
+	docs/reports/2026-11-24-v2.14-sync.md
 vnstati_LDADD = @IMAGELIBS@
 vnstat_SOURCES = src/vnstat.c \
   src/vnstat_func.c src/vnstat_func.h \
@@ -805,7 +816,8 @@ vnstati_SOURCES = src/vnstati.c src/vnstati.h \
 @HAVE_CHECK_TRUE@EXTRA_check_vnstat_DEPENDENCIES = tests/vnstat.conf
 @HAVE_CHECK_TRUE@check_vnstat_SOURCES = tests/vnstat_tests.c \
 @HAVE_CHECK_TRUE@	tests/vnstat_tests.h tests/common_tests.c \
-@HAVE_CHECK_TRUE@	tests/common_tests.h tests/database_tests.c \
+@HAVE_CHECK_TRUE@	tests/common_tests.h tests/billing_tests.c \
+@HAVE_CHECK_TRUE@	tests/billing_tests.h tests/database_tests.c \
 @HAVE_CHECK_TRUE@	tests/database_tests.h tests/dbsql_tests.c \
 @HAVE_CHECK_TRUE@	tests/dbsql_tests.h tests/dbmerge_tests.c \
 @HAVE_CHECK_TRUE@	tests/dbmerge_tests.h tests/datacache_tests.c \
@@ -1313,6 +1325,20 @@ tests/check_vnstat-common_tests.obj: tests/common_tests.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tests/common_tests.c' object='tests/check_vnstat-common_tests.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(check_vnstat_CFLAGS) $(CFLAGS) -c -o tests/check_vnstat-common_tests.obj `if test -f 'tests/common_tests.c'; then $(CYGPATH_W) 'tests/common_tests.c'; else $(CYGPATH_W) '$(srcdir)/tests/common_tests.c'; fi`
+
+tests/check_vnstat-billing_tests.o: tests/billing_tests.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(check_vnstat_CFLAGS) $(CFLAGS) -MT tests/check_vnstat-billing_tests.o -MD -MP -MF tests/$(DEPDIR)/check_vnstat-billing_tests.Tpo -c -o tests/check_vnstat-billing_tests.o `test -f 'tests/billing_tests.c' || echo '$(srcdir)/'`tests/billing_tests.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) tests/$(DEPDIR)/check_vnstat-billing_tests.Tpo tests/$(DEPDIR)/check_vnstat-billing_tests.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tests/billing_tests.c' object='tests/check_vnstat-billing_tests.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(check_vnstat_CFLAGS) $(CFLAGS) -c -o tests/check_vnstat-billing_tests.o `test -f 'tests/billing_tests.c' || echo '$(srcdir)/'`tests/billing_tests.c
+
+tests/check_vnstat-billing_tests.obj: tests/billing_tests.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(check_vnstat_CFLAGS) $(CFLAGS) -MT tests/check_vnstat-billing_tests.obj -MD -MP -MF tests/$(DEPDIR)/check_vnstat-billing_tests.Tpo -c -o tests/check_vnstat-billing_tests.obj `if test -f 'tests/billing_tests.c'; then $(CYGPATH_W) 'tests/billing_tests.c'; else $(CYGPATH_W) '$(srcdir)/tests/billing_tests.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) tests/$(DEPDIR)/check_vnstat-billing_tests.Tpo tests/$(DEPDIR)/check_vnstat-billing_tests.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tests/billing_tests.c' object='tests/check_vnstat-billing_tests.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(check_vnstat_CFLAGS) $(CFLAGS) -c -o tests/check_vnstat-billing_tests.obj `if test -f 'tests/billing_tests.c'; then $(CYGPATH_W) 'tests/billing_tests.c'; else $(CYGPATH_W) '$(srcdir)/tests/billing_tests.c'; fi`
 
 tests/check_vnstat-database_tests.o: tests/database_tests.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(check_vnstat_CFLAGS) $(CFLAGS) -MT tests/check_vnstat-database_tests.o -MD -MP -MF tests/$(DEPDIR)/check_vnstat-database_tests.Tpo -c -o tests/check_vnstat-database_tests.o `test -f 'tests/database_tests.c' || echo '$(srcdir)/'`tests/database_tests.c
@@ -2648,6 +2674,7 @@ distclean: distclean-recursive
 	-rm -f src/$(DEPDIR)/vnstat_func.Po
 	-rm -f src/$(DEPDIR)/vnstatd.Po
 	-rm -f src/$(DEPDIR)/vnstati.Po
+	-rm -f tests/$(DEPDIR)/check_vnstat-billing_tests.Po
 	-rm -f tests/$(DEPDIR)/check_vnstat-cli_tests.Po
 	-rm -f tests/$(DEPDIR)/check_vnstat-common_tests.Po
 	-rm -f tests/$(DEPDIR)/check_vnstat-config_tests.Po
@@ -2772,6 +2799,7 @@ maintainer-clean: maintainer-clean-recursive
 	-rm -f src/$(DEPDIR)/vnstat_func.Po
 	-rm -f src/$(DEPDIR)/vnstatd.Po
 	-rm -f src/$(DEPDIR)/vnstati.Po
+	-rm -f tests/$(DEPDIR)/check_vnstat-billing_tests.Po
 	-rm -f tests/$(DEPDIR)/check_vnstat-cli_tests.Po
 	-rm -f tests/$(DEPDIR)/check_vnstat-common_tests.Po
 	-rm -f tests/$(DEPDIR)/check_vnstat-config_tests.Po
@@ -2840,17 +2868,20 @@ uninstall-man: uninstall-man1 uninstall-man5 uninstall-man8
 .PRECIOUS: Makefile
 
 
-INSTALL:
-	cp -a INSTALL.md INSTALL
+README: $(srcdir)/README.md
+	cp -a $(srcdir)/README.md README
 
-INSTALL_BSD:
-	cp -a INSTALL_BSD.md INSTALL_BSD
+INSTALL: $(srcdir)/INSTALL.md
+	cp -a $(srcdir)/INSTALL.md INSTALL
 
-UPGRADE:
-	cp -a UPGRADE.md UPGRADE
+INSTALL_BSD: $(srcdir)/INSTALL_BSD.md
+	cp -a $(srcdir)/INSTALL_BSD.md INSTALL_BSD
 
-UNINSTALL:
-	cp -a UNINSTALL.md UNINSTALL
+UPGRADE: $(srcdir)/UPGRADE.md
+	cp -a $(srcdir)/UPGRADE.md UPGRADE
+
+UNINSTALL: $(srcdir)/UNINSTALL.md
+	cp -a $(srcdir)/UNINSTALL.md UNINSTALL
 
 setdebug:
 	CFLAGS='-Wall -Wextra -g' ./configure

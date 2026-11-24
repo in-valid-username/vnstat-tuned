@@ -3,7 +3,15 @@ AM_CFLAGS = @CFLAG_EXTRAS@
 
 dist_man_MANS = man/vnstat.1 man/vnstat.conf.5 man/vnstatd.8 man/vnstati.1
 
-EXTRA_DIST = cfg examples UPGRADE CHANGES FAQ INSTALL_BSD UNINSTALL
+EXTRA_DIST = cfg examples UPGRADE CHANGES FAQ INSTALL_BSD UNINSTALL \
+	README.md INSTALL.md INSTALL_BSD.md UPGRADE.md UNINSTALL.md \
+	tests/run_fork_checks.py tests/output_parse_tests.py \
+	tests/daemon_smoke.py docs/fork-review.md docs/billing.md docs/output.md \
+	docs/build-and-test.md docs/reference/baseline.md \
+	docs/reference/upstream-readme.txt docs/reports/2026-10-04-validation.md \
+	docs/reports/2026-10-10-update-validation.md \
+	docs/reports/2026-11-01-monthend-validation.md \
+	docs/reports/2026-11-24-v2.14-sync.md
 
 bin_PROGRAMS = vnstat
 sbin_PROGRAMS = vnstatd
@@ -78,6 +86,7 @@ EXTRA_check_vnstat_DEPENDENCIES = tests/vnstat.conf
 
 check_vnstat_SOURCES = tests/vnstat_tests.c tests/vnstat_tests.h \
   tests/common_tests.c tests/common_tests.h \
+  tests/billing_tests.c tests/billing_tests.h \
   tests/database_tests.c tests/database_tests.h \
   tests/dbsql_tests.c tests/dbsql_tests.h \
   tests/dbmerge_tests.c tests/dbmerge_tests.h \
@@ -129,17 +138,20 @@ check_vnstat_SOURCES += tests/image_tests.c tests/image_tests.h \
 endif
 endif
 
-INSTALL:
-	cp -a INSTALL.md INSTALL
+README: $(srcdir)/README.md
+	cp -a $(srcdir)/README.md README
 
-INSTALL_BSD:
-	cp -a INSTALL_BSD.md INSTALL_BSD
+INSTALL: $(srcdir)/INSTALL.md
+	cp -a $(srcdir)/INSTALL.md INSTALL
 
-UPGRADE:
-	cp -a UPGRADE.md UPGRADE
+INSTALL_BSD: $(srcdir)/INSTALL_BSD.md
+	cp -a $(srcdir)/INSTALL_BSD.md INSTALL_BSD
 
-UNINSTALL:
-	cp -a UNINSTALL.md UNINSTALL
+UPGRADE: $(srcdir)/UPGRADE.md
+	cp -a $(srcdir)/UPGRADE.md UPGRADE
+
+UNINSTALL: $(srcdir)/UNINSTALL.md
+	cp -a $(srcdir)/UNINSTALL.md UNINSTALL
 
 setdebug:
 	CFLAGS='-Wall -Wextra -g' ./configure

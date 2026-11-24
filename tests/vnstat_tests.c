@@ -2,6 +2,7 @@
 #include "cfg.h"
 #include "vnstat_tests.h"
 #include "common_tests.h"
+#include "billing_tests.h"
 #include "dbsql_tests.h"
 #include "dbmerge_tests.h"
 #include "database_tests.h"
@@ -41,7 +42,7 @@ int main(void)
 		remove_directory(TESTDIR);
 	}
 
-	return number_failed;
+	return number_failed == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 Suite *test_suite(void)
@@ -49,6 +50,7 @@ Suite *test_suite(void)
 	Suite *s = suite_create("vnStat");
 
 	add_common_tests(s);
+	add_billing_tests(s);
 	add_dbsql_tests(s);
 	add_dbmerge_tests(s);
 	add_database_tests(s);

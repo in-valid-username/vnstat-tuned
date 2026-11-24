@@ -167,7 +167,7 @@ void showsummary(const interfaceinfo *ifaceinfo, const int shortmode)
 				printf("%s%s", fieldseparator, gettrafficrate(datalist_i->rx + datalist_i->tx, (time_t)getperiodseconds(LT_Month, datalist_i->timestamp, ifaceinfo->updated, ifaceinfo->created, 1), 14));
 			}
 		} else if (!shortmode && cfg.ostyle >= 2) {
-			printf(" | %s", gettrafficrate(datalist_i->rx + datalist_i->tx, dmonth(d->tm_mon) * 86400, 14));
+			printf(" | %s", gettrafficrate(datalist_i->rx + datalist_i->tx, (time_t)getperiodseconds(LT_Month, datalist_i->timestamp, ifaceinfo->updated, ifaceinfo->created, 0), 14));
 		}
 		printf("\n");
 		datalist_i = datalist_i->next;

@@ -11,6 +11,7 @@
 #include "image_graph.h"
 #include <stdlib.h>
 #include <unistd.h>
+#include <fenv.h>
 
 static const int image_output_qmodes[] = {
 	1, 2, 3, 4, 5, 51, 52, 7, 8, 9, 10, 130, 131, 132
@@ -1793,6 +1794,77 @@ START_TEST(imagecentery_builtin)
 }
 END_TEST
 
+START_TEST(drawpercentile_handles_zero_and_subunit_rates)
+{
+	IMAGECONTENT ic;
+	time_t entry = (time_t)get_timestamp(2001, 1, 1, 0, 0);
+
+	cfg.fiveminutehours = PERCENTILEENTRYCOUNT;
+	cfg.rateunit = 0;
+	ck_assert_int_eq(db_open_rw(1), 1);
+	ck_assert_int_eq(db_addinterface("interface"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", (uint64_t)(_i % 2), (uint64_t)(_i % 2), (uint64_t)entry), 1);
+	initimagecontent(&ic);
+	ck_assert_int_eq(db_getinterfaceinfo("interface", &ic.interface), 1);
+	imageinit(&ic, 900, 300);
+	ck_assert_int_eq(feclearexcept(FE_ALL_EXCEPT), 0);
+	ck_assert_int_eq(drawpercentile(&ic, _i / 2, 8, 270, 232, NULL), 1);
+	ck_assert_int_eq(fetestexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW), 0);
+	gdImageDestroy(ic.im);
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
+START_TEST(drawpercentile_limits_hourly_graph_to_billing_samples)
+{
+	IMAGECONTENT ic;
+	time_t entry = (time_t)get_timestamp(2020, 1, 10, 12, 5);
+
+	cfg.monthrotate = 10;
+	cfg.monthrotatehour = 12;
+	cfg.monthrotateminute = 5;
+	cfg.fiveminutehours = PERCENTILEENTRYCOUNT;
+	cfg.rateunit = 0;
+	ck_assert_int_eq(db_open_rw(1), 1);
+	ck_assert_int_eq(db_addinterface("interface"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 90000000, 0, (uint64_t)(entry - 300)), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 30000, 0, (uint64_t)entry), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", 90000000, 0, get_timestamp(2020, 2, 10, 12, 5)), 1);
+	ck_assert_int_eq(db_exec("DELETE FROM month WHERE date >= '2020-02-01'"), 1);
+	initimagecontent(&ic);
+	ck_assert_int_eq(db_getinterfaceinfo("interface", &ic.interface), 1);
+	imageinit(&ic, 900, 300);
+	ck_assert_int_eq(drawpercentile(&ic, 0, 8, 270, 232, NULL), 1);
+	/* 排除账期外的高峰样本后，100 B/s 百分位线应恰好落在刻度顶部 */
+	ck_assert_int_eq(gdImageGetPixel(ic.im, 49, 37), ic.cpercentileline);
+	gdImageDestroy(ic.im);
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
+START_TEST(drawfiveminutes_handles_zero_directions_and_subunit_rates)
+{
+	const uint64_t rx[] = {0, 1, 0, 300};
+	const uint64_t tx[] = {0, 1, 300, 0};
+	IMAGECONTENT ic;
+	time_t entry = (time_t)get_timestamp(2001, 1, 1, 0, 0);
+
+	cfg.rateunit = 0;
+	ck_assert_int_eq(db_open_rw(1), 1);
+	ck_assert_int_eq(db_addinterface("interface"), 1);
+	ck_assert_int_eq(db_addtraffic_dated("interface", rx[_i % 4], tx[_i % 4], (uint64_t)entry), 1);
+	ck_assert_int_eq(db_setupdated("interface", entry + 300), 1);
+	initimagecontent(&ic);
+	ck_assert_int_eq(db_getinterfaceinfo("interface", &ic.interface), 1);
+	imageinit(&ic, 640, 300);
+	ck_assert_int_eq(feclearexcept(FE_ALL_EXCEPT), 0);
+	ck_assert_int_eq(drawfiveminutes(&ic, 8, 270, _i / 4, 12, 232, 1), 1);
+	ck_assert_int_eq(fetestexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW), 0);
+	gdImageDestroy(ic.im);
+	ck_assert_int_eq(db_close(), 1);
+}
+END_TEST
+
 void add_image_tests(Suite *s)
 {
 	TCase *tc_image = tcase_create("Image");
@@ -1848,5 +1920,8 @@ void add_image_tests(Suite *s)
 	tcase_add_test(tc_image, fiveg_barwidth_builtin);
 	tcase_add_test(tc_image, percentilelegend_helpers);
 	tcase_add_test(tc_image, imagecentery_builtin);
+	tcase_add_loop_test(tc_image, drawpercentile_handles_zero_and_subunit_rates, 0, 6);
+	tcase_add_test(tc_image, drawpercentile_limits_hourly_graph_to_billing_samples);
+	tcase_add_loop_test(tc_image, drawfiveminutes_handles_zero_directions_and_subunit_rates, 0, 8);
 	suite_add_tcase(s, tc_image);
 }

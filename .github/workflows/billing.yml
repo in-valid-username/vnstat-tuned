@@ -1,0 +1,52 @@
+name: Billing Regression
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  billing:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake pkg-config libsqlite3-dev libgd-dev check clang python3 perl locales iproute2
+          sudo localedef -i de_DE -f UTF-8 de_DE.UTF-8
+      - name: Build and run GCC & Clang sanitizer checks
+        run: |
+          python3 tests/run_fork_checks.py /tmp/billing-gcc --werror
+          python3 tests/run_fork_checks.py /tmp/billing-sanitized --compiler clang --sanitize --werror --no-pie
+      - name: Output and script syntax checks
+        run: |
+          python3 tests/output_parse_tests.py /tmp/billing-gcc/vnstat --comma-locale de_DE.UTF-8
+          perl -c examples/vnstat-metrics.cgi
+      - name: UTC+8 and distcheck
+        run: |
+          cd /tmp/billing-gcc
+          TZ=Asia/Singapore make check
+          make distcheck
+      - name: Build unmodified v2.14 baseline
+        run: |
+          mkdir /tmp/billing-upstream
+          git archive e55b2c8c3db982b5c73e8d7a52ea3b0a67d63731 | tar -x -C /tmp/billing-upstream
+          cd /tmp/billing-upstream
+          ./configure
+          make -j2
+      - name: Isolated daemon and database compatibility test
+        run: sudo unshare --net python3 tests/daemon_smoke.py /tmp/billing-gcc --upstream-build /tmp/billing-upstream --outdir /tmp/billing-smoke
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: billing-logs
+          path: |
+            /tmp/billing-gcc/verification.log
+            /tmp/billing-gcc/test.log
+            /tmp/billing-sanitized/verification.log
+            /tmp/billing-sanitized/test.log
+            /tmp/billing-smoke
